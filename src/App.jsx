@@ -1,0 +1,104 @@
+import { useState } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import useAuthStore from './store/authStore'
+import Sidebar from './components/Sidebar'
+import NotificationBell from './components/NotificationBell'
+import Dashboard from './pages/Dashboard'
+import CoursesPage from './pages/CoursesPage'
+import CourseDetail from './pages/CourseDetail'
+import LessonViewer from './pages/LessonViewer'
+import TeacherDashboard from './pages/TeacherDashboard'
+import MessagesPage from './pages/MessagesPage'
+import AdminDashboard from './pages/AdminDashboard'
+import ForumPage from './pages/ForumPage'
+import ExamPage from './pages/ExamPage'
+import HomeworkPage from './pages/HomeworkPage'
+import ClassesPage from './pages/ClassesPage'
+import ClassDetail from './pages/ClassDetail'
+import VideoRoom from './pages/VideoRoom'
+import LoginPage from './pages/LoginPage'
+import ProfilePage from './pages/ProfilePage'
+
+function ProtectedRoute({ children }) {
+  const { token } = useAuthStore()
+  return token ? children : <Navigate to="/login" replace />
+}
+
+function AppLayout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { user } = useAuthStore()
+  const location = useLocation()
+
+  const isViewer = location.pathname.startsWith('/lesson/')
+  const isRoom   = location.pathname.startsWith('/room/')
+
+  if (isViewer) return <Routes><Route path="/lesson/:id" element={<LessonViewer />} /></Routes>
+  if (isRoom)   return <Routes><Route path="/room/:roomId" element={<VideoRoom />} /></Routes>
+
+  const pageTitles = {
+    '/':           'Tableau de bord',
+    '/courses':    'Catalogue des cours',
+    '/my-courses': 'Mes cours',
+    '/teacher':    'Espace enseignant',
+    '/messages':   'Messagerie',
+    '/admin':      'Classes & Promotions',
+    '/exams':      'Evaluations',
+    '/homeworks':  'Devoirs',
+    '/classes':    'Classes & Promotions',
+    '/profile':    'Mon profil',
+  }
+  const title = pageTitles[location.pathname] || 'UniLearn'
+
+  return (
+    <div className="app-shell">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="main">
+        <header className="topbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <button
+              onClick={() => setSidebarOpen(v => !v)}
+              style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--navy)', padding: 4 }}
+              className="hamburger"
+            >
+              &#9776;
+            </button>
+            <span className="topbar-title">{title}</span>
+          </div>
+          <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <NotificationBell />
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.name?.split(' ')[0]}</span>
+          </div>
+        </header>
+        <main className="content">
+          <Routes>
+            <Route path="/"                element={<Dashboard />} />
+            <Route path="/courses"         element={<CoursesPage />} />
+            <Route path="/courses/:id"     element={<CourseDetail />} />
+            <Route path="/my-courses"      element={<CoursesPage myOnly />} />
+            <Route path="/teacher"         element={<TeacherDashboard />} />
+            <Route path="/messages"        element={<MessagesPage />} />
+            <Route path="/admin"           element={<AdminDashboard />} />
+            <Route path="/forum/:courseId" element={<ForumPage />} />
+            <Route path="/exams"           element={<ExamPage />} />
+            <Route path="/homeworks"       element={<HomeworkPage />} />
+            <Route path="/classes"         element={<ClassesPage />} />
+            <Route path="/classes/:id"     element={<ClassDetail />} />
+            <Route path="/profile"         element={<ProfilePage />} />
+            <Route path="*"               element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login"        element={<LoginPage />} />
+      <Route path="/lesson/:id"   element={<ProtectedRoute><LessonViewer /></ProtectedRoute>} />
+      <Route path="/room/:roomId" element={<ProtectedRoute><VideoRoom /></ProtectedRoute>} />
+      <Route path="/*"            element={<ProtectedRoute><AppLayout /></ProtectedRoute>} />
+    </Routes>
+  )
+}
