@@ -1,24 +1,17 @@
 /**
  * AdminDashboard.jsx
- *
  * Flux : Classes -> detail classe -> [Cours | Etudiants | Enseignants | Inscriptions | Resultats]
- *
- * L'admin est le seul maitre : il cree les classes, cree les utilisateurs (etudiants
- * et enseignants), assigne les enseignants aux classes, cree les cours et les associe
- * aux classes, et gere les inscriptions des etudiants dans les cours.
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 
-/* ── Couleurs par niveau ── */
 const LEVEL_COLORS = {
   'Licence 1': '#3b82f6', 'Licence 2': '#06b6d4', 'Licence 3': '#10b981',
   'Master 1':  '#f59e0b', 'Master 2':  '#ef4444', 'Doctorat':  '#8b5cf6',
 }
 const lvlColor = l => LEVEL_COLORS[l] || '#6366f1'
 
-/* ── Utilitaires flash ── */
 function useFlash() {
   const [msg, setMsg] = useState({ text: '', type: '' })
   const flash = useCallback((text, type = 'success') => {
@@ -37,31 +30,22 @@ function Alert({ msg }) {
   )
 }
 
-/* ══════════════════════════════════════════════════════════
-   COMPOSANT PRINCIPAL
-══════════════════════════════════════════════════════════ */
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const [msg, flash] = useFlash()
 
-  /* ── Donnees globales ── */
   const [stats,      setStats]      = useState(null)
   const [classes,    setClasses]    = useState([])
   const [allUsers,   setAllUsers]   = useState([])
   const [categories, setCategories] = useState([])
-  const [years,      setYears]      = useState([])
   const [loading,    setLoading]    = useState(true)
 
-  /* ── Vue courante ── */
-  const [view, setView] = useState('classes') // 'classes' | 'classDetail' | 'users' | 'stats'
+  const [view,       setView]       = useState('classes')
+  const [selClass,   setSelClass]   = useState(null)
+  const [classDetail,setClassDetail]= useState(null)
+  const [detailTab,  setDetailTab]  = useState('courses')
+  const [detailLoad, setDetailLoad] = useState(false)
 
-  /* ── Classe selectionnee ── */
-  const [selClass,    setSelClass]    = useState(null)
-  const [classDetail, setClassDetail] = useState(null)
-  const [detailTab,   setDetailTab]   = useState('courses')
-  const [detailLoad,  setDetailLoad]  = useState(false)
-
-  /* ── Modals ── */
   const [classModal,  setClassModal]  = useState(false)
   const [userModal,   setUserModal]   = useState(false)
   const [courseModal, setCourseModal] = useState(false)
@@ -69,46 +53,41 @@ export default function AdminDashboard() {
   const [editUser,    setEditUser]    = useState(null)
   const [editCourse,  setEditCourse]  = useState(null)
 
-  /* ── Formulaires ── */
+  /* ✅ academic_year est maintenant un texte libre, pas un ID */
   const [classForm, setClassForm] = useState({
     name: '', code: '', description: '', level: '',
-    academic_year_id: '', teacher_id: '', max_students: 50, is_active: true,
+    academic_year: '', teacher_id: '', max_students: 50, is_active: true,
   })
-  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'student' })
+  const [userForm,   setUserForm]   = useState({ name: '', email: '', password: '', role: 'student' })
   const [courseForm, setCourseForm] = useState({
     title: '', description: '', category_id: '', teacher_id: '', is_published: true,
   })
 
-  /* ── Inscriptions ── */
-  const [enrolled,        setEnrolled]        = useState([])
-  const [enrollCourseId,  setEnrollCourseId]  = useState(null)
+  const [enrolled,       setEnrolled]       = useState([])
+  const [enrollCourseId, setEnrollCourseId] = useState(null)
 
-  /* ── Modal ajout etudiants ── */
   const [studModal,     setStudModal]     = useState(false)
   const [studSearch,    setStudSearch]    = useState('')
   const [selectedStuds, setSelectedStuds] = useState([])
+  const [search,        setSearch]        = useState('')
 
-  const [search, setSearch] = useState('')
-
-  const teachers  = useMemo(() => allUsers.filter(u => u.role === 'teacher'), [allUsers])
-  const students  = useMemo(() => allUsers.filter(u => u.role === 'student'),  [allUsers])
+  const teachers = useMemo(() => allUsers.filter(u => u.role === 'teacher'), [allUsers])
+  const students = useMemo(() => allUsers.filter(u => u.role === 'student'),  [allUsers])
 
   /* ── Chargement initial ── */
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, cl, u, cat, yr] = await Promise.all([
+      const [s, cl, u, cat] = await Promise.all([
         api.get('/admin/stats'),
         api.get('/classes'),
         api.get('/admin/users'),
         api.get('/categories'),
-        api.get('/academic/years'),
       ])
       setStats(s.data)
       setClasses(cl.data)
       setAllUsers(u.data)
       setCategories(cat.data)
-      setYears(yr.data)
     } catch {
       flash('Erreur de chargement', 'error')
     } finally {
@@ -124,11 +103,12 @@ export default function AdminDashboard() {
     setDetailTab('courses')
     setView('classDetail')
     setDetailLoad(true)
+    setClassDetail(null)
     try {
       const { data } = await api.get(`/classes/${cls.id}`)
       setClassDetail(data)
-    } catch {
-      flash('Erreur de chargement de la classe', 'error')
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur de chargement de la classe', 'error')
     } finally {
       setDetailLoad(false)
     }
@@ -136,12 +116,10 @@ export default function AdminDashboard() {
 
   const backToClasses = () => { setView('classes'); setSelClass(null); setClassDetail(null) }
 
-  /* ══════════════════════════════════
-     CLASSES — CRUD
-  ══════════════════════════════════ */
+  /* ── Classes CRUD ── */
   const openCreateClass = () => {
     setEditClass(null)
-    setClassForm({ name: '', code: '', description: '', level: '', academic_year_id: '', teacher_id: '', max_students: 50, is_active: true })
+    setClassForm({ name: '', code: '', description: '', level: '', academic_year: '', teacher_id: '', max_students: 50, is_active: true })
     setClassModal(true)
   }
 
@@ -149,25 +127,37 @@ export default function AdminDashboard() {
     e?.stopPropagation()
     setEditClass(cls)
     setClassForm({
-      name: cls.name, code: cls.code || '', description: cls.description || '',
-      level: cls.level || '', academic_year_id: cls.academic_year_id || '',
-      teacher_id: cls.teacher_id || '', max_students: cls.max_students, is_active: cls.is_active,
+      name:          cls.name,
+      code:          cls.code          || '',
+      description:   cls.description   || '',
+      level:         cls.level         || '',
+      academic_year: cls.academic_year_name || cls.academic_year || '',
+      teacher_id:    cls.teacher_id    || '',
+      max_students:  cls.max_students,
+      is_active:     cls.is_active,
     })
     setClassModal(true)
   }
 
   const saveClass = async () => {
     if (!classForm.name.trim()) return flash('Le nom est requis', 'error')
+
+    /* ✅ On envoie academic_year comme texte — le backend le stocke via AcademicYear ou directement */
     const payload = {
-      ...classForm,
-      academic_year_id: classForm.academic_year_id ? parseInt(classForm.academic_year_id) : null,
-      teacher_id:       classForm.teacher_id       ? parseInt(classForm.teacher_id)       : null,
+      name:          classForm.name,
+      code:          classForm.code          || null,
+      description:   classForm.description   || null,
+      level:         classForm.level         || null,
+      academic_year: classForm.academic_year || null,
+      teacher_id:    classForm.teacher_id    ? parseInt(classForm.teacher_id) : null,
+      max_students:  parseInt(classForm.max_students),
+      is_active:     classForm.is_active,
     }
     try {
       if (editClass) {
         await api.put(`/classes/${editClass.id}`, payload)
         flash('Classe mise a jour')
-        if (classDetail?.id === editClass.id) openClass(editClass)
+        if (classDetail?.id === editClass.id) openClass({ ...editClass, ...payload })
       } else {
         await api.post('/classes', payload)
         flash('Classe creee')
@@ -187,14 +177,10 @@ export default function AdminDashboard() {
       flash('Classe supprimee')
       if (selClass?.id === id) backToClasses()
       loadAll()
-    } catch {
-      flash('Erreur suppression', 'error')
-    }
+    } catch { flash('Erreur suppression', 'error') }
   }
 
-  /* ══════════════════════════════════
-     UTILISATEURS — CRUD
-  ══════════════════════════════════ */
+  /* ── Utilisateurs CRUD ── */
   const openCreateUser = role => {
     setEditUser(null)
     setUserForm({ name: '', email: '', password: '', role: role || 'student' })
@@ -219,9 +205,7 @@ export default function AdminDashboard() {
       }
       setUserModal(false)
       loadAll()
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur', 'error')
-    }
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
   const toggleActive = async u => {
@@ -236,14 +220,10 @@ export default function AdminDashboard() {
       await api.delete(`/admin/users/${id}`)
       flash('Utilisateur supprime')
       loadAll()
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur', 'error')
-    }
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
-  /* ══════════════════════════════════
-     COURS — CRUD (dans une classe)
-  ══════════════════════════════════ */
+  /* ── Cours CRUD ── */
   const openCreateCourse = () => {
     setEditCourse(null)
     setCourseForm({
@@ -258,7 +238,7 @@ export default function AdminDashboard() {
     setEditCourse(c)
     setCourseForm({
       title:        c.title,
-      description:  c.description || '',
+      description:  c.description  || '',
       category_id:  c.category_id  ? String(c.category_id)  : '',
       teacher_id:   c.teacher_id   ? String(c.teacher_id)   : '',
       is_published: c.is_published,
@@ -286,9 +266,7 @@ export default function AdminDashboard() {
       }
       setCourseModal(false)
       openClass(selClass)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur', 'error')
-    }
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
   const deleteCourse = async id => {
@@ -297,9 +275,7 @@ export default function AdminDashboard() {
       await api.delete(`/admin/courses/${id}`)
       flash('Cours supprime')
       openClass(selClass)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur', 'error')
-    }
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
   const togglePublish = async c => {
@@ -311,9 +287,7 @@ export default function AdminDashboard() {
     openClass(selClass)
   }
 
-  /* ══════════════════════════════════
-     INSCRIPTIONS (etudiants dans un cours)
-  ══════════════════════════════════ */
+  /* ── Inscriptions ── */
   const loadEnrolled = useCallback(async courseId => {
     const r = await api.get(`/admin/courses/${courseId}/students`)
     setEnrolled(r.data)
@@ -325,9 +299,7 @@ export default function AdminDashboard() {
       await api.post(`/admin/courses/${enrollCourseId}/enroll`, { student_ids: [studentId] })
       flash('Etudiant inscrit')
       loadEnrolled(enrollCourseId)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur', 'error')
-    }
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
   const unenrollStudent = async studentId => {
@@ -337,12 +309,10 @@ export default function AdminDashboard() {
   }
 
   /* ── Etudiants dans la classe ── */
-  const openAddStudents = async () => {
+  const openAddStudents = () => {
     const ids = new Set((classDetail?.students || []).map(s => s.id))
-    setStudModal(true)
     setSelectedStuds([])
     setStudSearch('')
-    // On filtre les etudiants pas encore dans la classe
     setStudModal({ open: true, available: students.filter(s => !ids.has(s.id)) })
   }
 
@@ -353,9 +323,7 @@ export default function AdminDashboard() {
       flash(`${data.added} etudiant(s) ajoute(s)`)
       setStudModal(false)
       openClass(selClass)
-    } catch {
-      flash('Erreur', 'error')
-    }
+    } catch { flash('Erreur', 'error') }
   }
 
   const removeStudentFromClass = async (sid, name) => {
@@ -364,12 +332,10 @@ export default function AdminDashboard() {
       await api.delete(`/classes/${classDetail.id}/students/${sid}`)
       flash(`${name} retire(e)`)
       openClass(selClass)
-    } catch {
-      flash('Erreur', 'error')
-    }
+    } catch { flash('Erreur', 'error') }
   }
 
-  /* ── Export CSV resultats ── */
+  /* ── Export CSV ── */
   const exportCSV = async () => {
     try {
       const { data } = await api.get(`/classes/${classDetail.id}/results`)
@@ -385,9 +351,7 @@ export default function AdminDashboard() {
         download: `resultats_${classDetail.name}.csv`,
       })
       a.click()
-    } catch {
-      flash('Erreur export', 'error')
-    }
+    } catch { flash('Erreur export', 'error') }
   }
 
   const filteredClasses = classes.filter(c =>
@@ -400,55 +364,39 @@ export default function AdminDashboard() {
     [students, enrolled]
   )
 
-  /* ════════════════════════════════════════════════════
-     RENDU
-  ════════════════════════════════════════════════════ */
-
   if (loading) return <div className="loading-overlay"><div className="spinner" /></div>
 
   return (
     <>
       <Alert msg={msg} />
 
-      {/* ══════════════════════════════════════════════
-          VUE : LISTE DES CLASSES (accueil admin)
-      ══════════════════════════════════════════════ */}
+      {/* ── VUE LISTE CLASSES ── */}
       {view === 'classes' && (
         <>
-          {/* En-tete */}
           <div style={{
             background: 'linear-gradient(135deg, var(--navy), #1a3a6e)',
             borderRadius: 16, padding: '28px 32px', marginBottom: 28,
             color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16,
           }}>
             <div>
-              <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>
-                Administration UniLearn
-              </h2>
-              <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>
-                Gerez vos classes, enseignants, etudiants et cours depuis ce panneau.
-              </p>
+              <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>Administration UniLearn</h2>
+              <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>Gerez vos classes, enseignants, etudiants et cours depuis ce panneau.</p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }}
-                onClick={() => setView('users')}>
-                Gerer les utilisateurs
-              </button>
+                onClick={() => setView('users')}>Gerer les utilisateurs</button>
               <button className="btn btn-sm" style={{ background: 'var(--gold)', color: '#fff', border: 'none' }}
-                onClick={openCreateClass}>
-                + Nouvelle classe
-              </button>
+                onClick={openCreateClass}>+ Nouvelle classe</button>
             </div>
           </div>
 
-          {/* Stats rapides */}
           {stats && (
             <div className="stats-grid" style={{ marginBottom: 24 }}>
               {[
-                { label: 'Classes',       value: stats.total_classes     ?? classes.length, cls: 'stat-navy'  },
-                { label: 'Etudiants',     value: stats.total_students,                      cls: 'stat-blue'  },
-                { label: 'Enseignants',   value: stats.total_teachers,                      cls: 'stat-gold'  },
-                { label: 'Cours',         value: stats.total_courses,                       cls: 'stat-green' },
+                { label: 'Classes',     value: stats.total_classes  ?? classes.length, cls: 'stat-navy'  },
+                { label: 'Etudiants',   value: stats.total_students,                   cls: 'stat-blue'  },
+                { label: 'Enseignants', value: stats.total_teachers,                   cls: 'stat-gold'  },
+                { label: 'Cours',       value: stats.total_courses,                    cls: 'stat-green' },
               ].map((s, i) => (
                 <div key={i} className={`stat-card ${s.cls}`}>
                   <div className="stat-label">{s.label}</div>
@@ -458,40 +406,26 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Recherche */}
-          <input
-            className="form-input"
-            placeholder="Rechercher une classe..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ maxWidth: 360, marginBottom: 20 }}
-          />
+          <input className="form-input" placeholder="Rechercher une classe..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{ maxWidth: 360, marginBottom: 20 }} />
 
-          {/* Grille classes */}
           {filteredClasses.length === 0 ? (
-            <div className="empty-state">
-              <h3>Aucune classe</h3>
-              <p>Creez la premiere classe pour commencer.</p>
-            </div>
+            <div className="empty-state"><h3>Aucune classe</h3><p>Creez la premiere classe pour commencer.</p></div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
               {filteredClasses.map(cls => (
-                <ClassCard
-                  key={cls.id}
-                  cls={cls}
+                <ClassCard key={cls.id} cls={cls}
                   onClick={() => openClass(cls)}
                   onEdit={e => openEditClass(cls, e)}
-                  onDelete={e => deleteClass(cls.id, e)}
-                />
+                  onDelete={e => deleteClass(cls.id, e)} />
               ))}
             </div>
           )}
         </>
       )}
 
-      {/* ══════════════════════════════════════════════
-          VUE : DETAIL D'UNE CLASSE
-      ══════════════════════════════════════════════ */}
+      {/* ── VUE DETAIL CLASSE ── */}
       {view === 'classDetail' && selClass && (
         <ClassDetailView
           selClass={selClass}
@@ -520,9 +454,7 @@ export default function AdminDashboard() {
         />
       )}
 
-      {/* ══════════════════════════════════════════════
-          VUE : GESTION UTILISATEURS
-      ══════════════════════════════════════════════ */}
+      {/* ── VUE UTILISATEURS ── */}
       {view === 'users' && (
         <UsersView
           allUsers={allUsers}
@@ -534,7 +466,7 @@ export default function AdminDashboard() {
         />
       )}
 
-      {/* ════════════ MODAL CLASSE ════════════ */}
+      {/* ── MODAL CLASSE ── */}
       {classModal && (
         <div className="modal-overlay" onClick={() => setClassModal(false)}>
           <div className="modal" style={{ maxWidth: 540, width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}
@@ -562,7 +494,7 @@ export default function AdminDashboard() {
                   <select className="form-select" value={classForm.level}
                     onChange={e => setClassForm(f => ({ ...f, level: e.target.value }))}>
                     <option value="">-- Selectionner --</option>
-                    {['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2', 'Doctorat', 'Autre'].map(l =>
+                    {['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2', 'Doctorat', 'BTS', 'Autre'].map(l =>
                       <option key={l} value={l}>{l}</option>
                     )}
                   </select>
@@ -575,13 +507,12 @@ export default function AdminDashboard() {
                   style={{ resize: 'vertical' }} />
               </div>
               <div className="form-row">
+                {/* ✅ Année académique en texte libre */}
                 <div className="form-group">
                   <label className="form-label">Annee academique</label>
-                  <select className="form-select" value={classForm.academic_year_id}
-                    onChange={e => setClassForm(f => ({ ...f, academic_year_id: e.target.value }))}>
-                    <option value="">-- Selectionner --</option>
-                    {years.map(y => <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' (actuelle)' : ''}</option>)}
-                  </select>
+                  <input className="form-input" value={classForm.academic_year}
+                    onChange={e => setClassForm(f => ({ ...f, academic_year: e.target.value }))}
+                    placeholder="Ex : 2024-2025" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Enseignant responsable</label>
@@ -616,7 +547,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ════════════ MODAL UTILISATEUR ════════════ */}
+      {/* ── MODAL UTILISATEUR ── */}
       {userModal && (
         <div className="modal-overlay" onClick={() => setUserModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -664,7 +595,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ════════════ MODAL COURS ════════════ */}
+      {/* ── MODAL COURS ── */}
       {courseModal && (
         <div className="modal-overlay" onClick={() => setCourseModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -721,7 +652,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ════════════ MODAL AJOUTER ETUDIANTS A LA CLASSE ════════════ */}
+      {/* ── MODAL AJOUTER ETUDIANTS ── */}
       {studModal?.open && (
         <div className="modal-overlay" onClick={() => setStudModal(false)}>
           <div className="modal" style={{ maxWidth: 520, width: '95vw', maxHeight: '85vh', overflowY: 'auto' }}
@@ -770,47 +701,31 @@ export default function AdminDashboard() {
   )
 }
 
-/* ══════════════════════════════════════════════════════════
-   SOUS-COMPOSANT : Carte classe
-══════════════════════════════════════════════════════════ */
+/* ── Carte classe ── */
 function ClassCard({ cls, onClick, onEdit, onDelete }) {
   const c   = lvlColor(cls.level)
   const pct = cls.max_students > 0 ? Math.round(cls.student_count / cls.max_students * 100) : 0
   return (
-    <div
-      onClick={onClick}
-      style={{
-        background: 'white', borderRadius: 14, overflow: 'hidden',
-        border: '1px solid var(--border)', cursor: 'pointer',
-        transition: 'transform .18s, box-shadow .18s', borderTop: `4px solid ${c}`,
-      }}
+    <div onClick={onClick} style={{
+      background: 'white', borderRadius: 14, overflow: 'hidden',
+      border: '1px solid var(--border)', cursor: 'pointer',
+      transition: 'transform .18s, box-shadow .18s', borderTop: `4px solid ${c}`,
+    }}
       onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,.10)' }}
-      onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}
-    >
+      onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none' }}>
       <div style={{ padding: '18px 20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)', marginBottom: 3 }}>{cls.name}</div>
-            {cls.code && (
-              <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>
-                {cls.code}
-              </span>
-            )}
+            {cls.code && <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 20, fontWeight: 600 }}>{cls.code}</span>}
           </div>
-          <span style={{
-            fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700,
-            background: cls.is_active ? '#dcfce7' : '#f1f5f9',
-            color: cls.is_active ? '#166534' : '#64748b',
-          }}>
+          <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700, background: cls.is_active ? '#dcfce7' : '#f1f5f9', color: cls.is_active ? '#166534' : '#64748b' }}>
             {cls.is_active ? 'Active' : 'Inactive'}
           </span>
         </div>
         {cls.level && <div style={{ fontSize: 12, color: c, fontWeight: 600, marginBottom: 6 }}>{cls.level}</div>}
-        {cls.teacher_name && (
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-            Enseignant : {cls.teacher_name}
-          </div>
-        )}
+        {cls.teacher_name && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Enseignant : {cls.teacher_name}</div>}
+        {cls.academic_year_name && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>📅 {cls.academic_year_name}</div>}
         <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#3b82f6' }}>{cls.student_count}</div>
@@ -824,42 +739,32 @@ function ClassCard({ cls, onClick, onEdit, onDelete }) {
         <div style={{ height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
           <div style={{ height: '100%', width: `${pct}%`, background: c, borderRadius: 4, transition: 'width .4s' }} />
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
-          {cls.student_count}/{cls.max_students} places
-        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>{cls.student_count}/{cls.max_students} places</div>
         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-          <button className="btn btn-outline btn-sm" onClick={onEdit} style={{ fontSize: 11, padding: '3px 10px' }}>
-            Modifier
-          </button>
-          <button className="btn btn-danger btn-sm" onClick={onDelete} style={{ fontSize: 11, padding: '3px 10px' }}>
-            Supprimer
-          </button>
+          <button className="btn btn-outline btn-sm" onClick={onEdit} style={{ fontSize: 11, padding: '3px 10px' }}>Modifier</button>
+          <button className="btn btn-danger btn-sm" onClick={onDelete} style={{ fontSize: 11, padding: '3px 10px' }}>Supprimer</button>
         </div>
       </div>
     </div>
   )
 }
 
-/* ══════════════════════════════════════════════════════════
-   SOUS-COMPOSANT : Detail classe
-══════════════════════════════════════════════════════════ */
+/* ── Detail classe ── */
 function ClassDetailView({
   selClass, classDetail, detailTab, setDetailTab, detailLoad,
   teachers, students, enrolled, enrollCourseId, availableForEnroll,
   onBack, onEdit, onExport,
   onCreateCourse, onEditCourse, onDeleteCourse, onTogglePublish,
   onLoadEnrolled, onEnroll, onUnenroll,
-  onAddStudents, onRemoveStudent,
-  navigate,
+  onAddStudents, onRemoveStudent, navigate,
 }) {
   const c = lvlColor(selClass.level)
-
   const tabs = [
-    { id: 'courses',      label: `Cours (${classDetail?.courses?.length ?? '...'})` },
-    { id: 'students',     label: `Etudiants (${classDetail?.students?.length ?? '...'})` },
-    { id: 'teachers',     label: 'Enseignants' },
-    { id: 'enrollments',  label: 'Inscriptions aux cours' },
-    { id: 'results',      label: 'Resultats' },
+    { id: 'courses',     label: `Cours (${classDetail?.courses?.length ?? '...'})` },
+    { id: 'students',    label: `Etudiants (${classDetail?.students?.length ?? '...'})` },
+    { id: 'teachers',    label: 'Enseignants' },
+    { id: 'enrollments', label: 'Inscriptions aux cours' },
+    { id: 'results',     label: 'Resultats' },
   ]
 
   return (
@@ -873,47 +778,39 @@ function ClassDetailView({
         <span style={{ color: 'var(--navy)', fontWeight: 700 }}>{selClass.name}</span>
       </div>
 
-      {/* En-tete classe */}
-      <div style={{
-        background: 'linear-gradient(135deg, var(--navy), #1a3a6e)',
-        borderRadius: 16, padding: '24px 28px', marginBottom: 24,
-        color: 'white', borderLeft: `5px solid ${c}`,
-      }}>
+      {/* En-tete */}
+      <div style={{ background: 'linear-gradient(135deg, var(--navy), #1a3a6e)', borderRadius: 16, padding: '24px 28px', marginBottom: 24, color: 'white', borderLeft: `5px solid ${c}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
               <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>{selClass.name}</h2>
-              {selClass.code && (
-                <span style={{ fontSize: 11, background: 'rgba(255,255,255,.15)', padding: '2px 10px', borderRadius: 20, fontWeight: 600 }}>
-                  {selClass.code}
-                </span>
-              )}
+              {selClass.code && <span style={{ fontSize: 11, background: 'rgba(255,255,255,.15)', padding: '2px 10px', borderRadius: 20, fontWeight: 600 }}>{selClass.code}</span>}
             </div>
             <div style={{ fontSize: 13, opacity: .75, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              {selClass.level       && <span>{selClass.level}</span>}
+              {selClass.level        && <span>{selClass.level}</span>}
               {selClass.teacher_name && <span>Enseignant : {selClass.teacher_name}</span>}
-              {classDetail?.academic_year_name && <span>Annee : {classDetail.academic_year_name}</span>}
+              {(classDetail?.academic_year_name || selClass.academic_year_name) && (
+                <span>Annee : {classDetail?.academic_year_name || selClass.academic_year_name}</span>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }} onClick={onEdit}>
-              Modifier
-            </button>
-            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }} onClick={onExport}>
-              Export CSV
-            </button>
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }} onClick={onEdit}>Modifier</button>
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }} onClick={onExport}>Export CSV</button>
           </div>
         </div>
+
+        {/* Stats */}
         {classDetail && (
           <div style={{ display: 'flex', gap: 24, marginTop: 16, flexWrap: 'wrap' }}>
             {[
-              { l: 'Etudiants',  v: classDetail.stats?.total_students,  c: '#60a5fa' },
-              { l: 'Cours',      v: classDetail.stats?.total_courses,    c: '#34d399' },
-              { l: 'Examens',    v: classDetail.stats?.total_exams,      c: '#fbbf24' },
-              { l: 'Devoirs',    v: classDetail.stats?.total_homeworks,  c: '#a78bfa' },
+              { l: 'Etudiants', v: classDetail.stats?.total_students ?? classDetail.students?.length, c: '#60a5fa' },
+              { l: 'Cours',     v: classDetail.stats?.total_courses  ?? classDetail.courses?.length,  c: '#34d399' },
+              { l: 'Examens',   v: classDetail.stats?.total_exams    ?? classDetail.exams?.length,    c: '#fbbf24' },
+              { l: 'Devoirs',   v: classDetail.stats?.total_homeworks ?? classDetail.homeworks?.length,c: '#a78bfa' },
             ].map(s => (
               <div key={s.l}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: s.c }}>{s.v ?? '—'}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: s.c }}>{s.v ?? 0}</div>
                 <div style={{ fontSize: 11, opacity: .6 }}>{s.l}</div>
               </div>
             ))}
@@ -925,38 +822,31 @@ function ClassDetailView({
       <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setDetailTab(t.id)} style={{
-            padding: '10px 18px', border: 'none', cursor: 'pointer', fontSize: 13,
-            whiteSpace: 'nowrap', fontWeight: detailTab === t.id ? 700 : 400,
+            padding: '10px 18px', border: 'none', cursor: 'pointer', fontSize: 13, whiteSpace: 'nowrap',
+            fontWeight: detailTab === t.id ? 700 : 400,
             color: detailTab === t.id ? 'var(--navy)' : 'var(--text-muted)',
             background: 'transparent',
             borderBottom: detailTab === t.id ? '2px solid var(--navy)' : '2px solid transparent',
             marginBottom: -1,
-          }}>
-            {t.label}
-          </button>
+          }}>{t.label}</button>
         ))}
       </div>
 
       {detailLoad ? (
         <div className="loading-overlay"><div className="spinner" /></div>
-      ) : !classDetail ? null : (
+      ) : !classDetail ? (
+        <div className="empty-state"><h3>Chargement...</h3></div>
+      ) : (
         <>
           {/* ── COURS ── */}
           {detailTab === 'courses' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>
-                  {classDetail.courses?.length ?? 0} cours dans cette classe
-                </span>
-                <button className="btn btn-primary btn-sm" onClick={onCreateCourse}>
-                  + Nouveau cours
-                </button>
+                <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>{classDetail.courses?.length ?? 0} cours dans cette classe</span>
+                <button className="btn btn-primary btn-sm" onClick={onCreateCourse}>+ Nouveau cours</button>
               </div>
               {(classDetail.courses?.length ?? 0) === 0 ? (
-                <div className="empty-state">
-                  <h3>Aucun cours</h3>
-                  <p>Creez le premier cours pour cette classe.</p>
-                </div>
+                <div className="empty-state"><h3>Aucun cours</h3><p>Creez le premier cours pour cette classe.</p></div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {(classDetail.courses ?? []).map(course => (
@@ -965,32 +855,18 @@ function ClassDetailView({
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{course.title}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                            Enseignant : {course.teacher_name} &bull; {course.lesson_count ?? 0} lecon(s) &bull; {course.student_count ?? 0} etudiant(s)
+                            {course.teacher_name} &bull; {course.lesson_count ?? 0} lecon(s) &bull; {course.student_count ?? 0} etudiant(s)
                           </div>
                         </div>
-                        <span style={{
-                          fontSize: 11, padding: '2px 10px', borderRadius: 20,
-                          background: course.is_published ? '#d1fae5' : '#fef9c3',
-                          color: course.is_published ? '#065f46' : '#854d0e',
-                        }}>
+                        <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: course.is_published ? '#d1fae5' : '#fef9c3', color: course.is_published ? '#065f46' : '#854d0e' }}>
                           {course.is_published ? 'Publie' : 'Brouillon'}
                         </span>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-outline btn-sm" onClick={() => navigate(`/courses/${course.id}`)}>
-                            Voir
-                          </button>
-                          <button className="btn btn-outline btn-sm" onClick={() => onEditCourse(course)}>
-                            Modifier
-                          </button>
-                          <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>
-                            {course.is_published ? 'Depublier' : 'Publier'}
-                          </button>
-                          <button className="btn btn-outline btn-sm" onClick={() => { onLoadEnrolled(course.id); setDetailTab('enrollments') }}>
-                            Inscrire
-                          </button>
-                          <button className="btn btn-danger btn-sm" onClick={() => onDeleteCourse(course.id)}>
-                            Supprimer
-                          </button>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button className="btn btn-outline btn-sm" onClick={() => navigate(`/courses/${course.id}`)}>Voir</button>
+                          <button className="btn btn-outline btn-sm" onClick={() => onEditCourse(course)}>Modifier</button>
+                          <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>{course.is_published ? 'Depublier' : 'Publier'}</button>
+                          <button className="btn btn-outline btn-sm" onClick={() => { onLoadEnrolled(course.id); setDetailTab('enrollments') }}>Inscrire</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => onDeleteCourse(course.id)}>Supprimer</button>
                         </div>
                       </div>
                     </div>
@@ -1004,9 +880,7 @@ function ClassDetailView({
           {detailTab === 'students' && (
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <button className="btn btn-primary btn-sm" onClick={onAddStudents}>
-                  + Ajouter des etudiants
-                </button>
+                <button className="btn btn-primary btn-sm" onClick={onAddStudents}>+ Ajouter des etudiants</button>
               </div>
               {(classDetail.students?.length ?? 0) === 0 ? (
                 <div className="empty-state"><h3>Aucun etudiant dans cette classe</h3></div>
@@ -1015,25 +889,16 @@ function ClassDetailView({
                   {(classDetail.students ?? []).map(s => (
                     <div key={s.id} className="card">
                       <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{
-                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                          background: 'var(--navy)', color: 'white',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontWeight: 700, fontSize: 13,
-                        }}>
+                        <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: 'var(--navy)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>
                           {s.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {s.name}
-                          </div>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.email}</div>
                           {s.matricule && <div style={{ fontSize: 10, color: '#64748b' }}>#{s.matricule}</div>}
                         </div>
                         <button className="btn btn-danger btn-sm" style={{ padding: '2px 8px', fontSize: 11 }}
-                          onClick={() => onRemoveStudent(s.id, s.name)}>
-                          Retirer
-                        </button>
+                          onClick={() => onRemoveStudent(s.id, s.name)}>Retirer</button>
                       </div>
                     </div>
                   ))}
@@ -1045,9 +910,7 @@ function ClassDetailView({
           {/* ── ENSEIGNANTS ── */}
           {detailTab === 'teachers' && (
             <div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
-                Enseignants assignes a cette classe ou a ses cours.
-              </p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Enseignants assignes a cette classe ou a ses cours.</p>
               {(() => {
                 const teacherIds = new Set()
                 const list = []
@@ -1058,7 +921,7 @@ function ClassDetailView({
                 classDetail.courses?.forEach(c => {
                   if (c.teacher_id && !teacherIds.has(c.teacher_id)) {
                     const t = teachers.find(t => t.id === c.teacher_id)
-                    if (t) { teacherIds.add(t.id); list.push({ ...t, role_in_class: `Cours : ${c.title}` }) }
+                    if (t) { teacherIds.add(t.id); list.push({ ...t, role_in_class: `Cours : ${c.title.slice(0, 30)}` }) }
                   }
                 })
                 if (list.length === 0) return <div className="empty-state"><h3>Aucun enseignant assigne</h3></div>
@@ -1067,21 +930,14 @@ function ClassDetailView({
                     {list.map(t => (
                       <div key={t.id} className="card">
                         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{
-                            width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-                            background: '#0EA5E922', color: '#0EA5E9',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontWeight: 700, fontSize: 14,
-                          }}>
+                          <div style={{ width: 42, height: 42, borderRadius: '50%', flexShrink: 0, background: '#0EA5E922', color: '#0EA5E9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
                             {t.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{t.name}</div>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t.email}</div>
                           </div>
-                          <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>
-                            {t.role_in_class}
-                          </span>
+                          <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: '#e0f2fe', color: '#0369a1', fontWeight: 600 }}>{t.role_in_class}</span>
                         </div>
                       </div>
                     ))}
@@ -1091,7 +947,7 @@ function ClassDetailView({
             </div>
           )}
 
-          {/* ── INSCRIPTIONS AUX COURS ── */}
+          {/* ── INSCRIPTIONS ── */}
           {detailTab === 'enrollments' && (
             <div>
               <div className="form-group" style={{ maxWidth: 420, marginBottom: 24 }}>
@@ -1104,13 +960,10 @@ function ClassDetailView({
                   ))}
                 </select>
               </div>
-
               {enrollCourseId && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>
-                      Inscrits ({enrolled.length})
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>Inscrits ({enrolled.length})</div>
                     {enrolled.length === 0 ? (
                       <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Aucun etudiant inscrit.</div>
                     ) : enrolled.map(s => (
@@ -1120,17 +973,13 @@ function ClassDetailView({
                             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>{s.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.email}</div>
                           </div>
-                          <button className="btn btn-danger btn-sm" onClick={() => onUnenroll(s.id)}>
-                            Retirer
-                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => onUnenroll(s.id)}>Retirer</button>
                         </div>
                       </div>
                     ))}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>
-                      Etudiants de la classe a inscrire ({availableForEnroll.length})
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>A inscrire ({availableForEnroll.length})</div>
                     {availableForEnroll.length === 0 ? (
                       <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Tous les etudiants sont inscrits.</div>
                     ) : availableForEnroll.map(s => (
@@ -1140,9 +989,7 @@ function ClassDetailView({
                             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>{s.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.email}</div>
                           </div>
-                          <button className="btn btn-primary btn-sm" onClick={() => onEnroll(s.id)}>
-                            + Inscrire
-                          </button>
+                          <button className="btn btn-primary btn-sm" onClick={() => onEnroll(s.id)}>+ Inscrire</button>
                         </div>
                       </div>
                     ))}
@@ -1160,15 +1007,11 @@ function ClassDetailView({
   )
 }
 
-/* ══════════════════════════════════════════════════════════
-   SOUS-COMPOSANT : Gestion utilisateurs
-══════════════════════════════════════════════════════════ */
+/* ── Gestion utilisateurs ── */
 function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive, onDeleteUser }) {
   const [tab,    setTab]    = useState('students')
   const [search, setSearch] = useState('')
-
   const roleColor = { admin: '#8B5CF6', teacher: '#0EA5E9', student: '#10B981' }
-  const roleLabel = { admin: 'Admin', teacher: 'Enseignant', student: 'Etudiant' }
 
   const filtered = allUsers
     .filter(u => u.role === (tab === 'teachers' ? 'teacher' : tab === 'admins' ? 'admin' : 'student'))
@@ -1183,7 +1026,6 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
         <span style={{ color: 'var(--text-muted)' }}>/</span>
         <span style={{ color: 'var(--navy)', fontWeight: 700 }}>Gestion des utilisateurs</span>
       </div>
-
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         {['students', 'teachers', 'admins'].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`btn btn-sm ${tab === t ? 'btn-primary' : 'btn-outline'}`}>
@@ -1198,40 +1040,27 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
           + Nouvel utilisateur
         </button>
       </div>
-
       <input className="form-input" placeholder="Rechercher..." value={search}
         onChange={e => setSearch(e.target.value)} style={{ maxWidth: 360, marginBottom: 16 }} />
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {filtered.length === 0 ? (
           <div className="empty-state"><h3>Aucun utilisateur</h3></div>
         ) : filtered.map(u => (
           <div key={u.id} className="card">
             <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{
-                width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
-                background: `${roleColor[u.role]}22`, color: roleColor[u.role],
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 13,
-              }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', flexShrink: 0, background: `${roleColor[u.role]}22`, color: roleColor[u.role], display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>
                 {u.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{u.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.email}</div>
               </div>
-              <span style={{
-                fontSize: 11, padding: '2px 10px', borderRadius: 20,
-                background: u.is_active ? '#d1fae5' : '#fee2e2',
-                color: u.is_active ? '#065f46' : '#991b1b',
-              }}>
+              <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: u.is_active ? '#d1fae5' : '#fee2e2', color: u.is_active ? '#065f46' : '#991b1b' }}>
                 {u.is_active ? 'Actif' : 'Inactif'}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="btn btn-outline btn-sm" onClick={() => onEditUser(u)}>Modifier</button>
-                <button className="btn btn-outline btn-sm" onClick={() => onToggleActive(u)}>
-                  {u.is_active ? 'Desactiver' : 'Activer'}
-                </button>
+                <button className="btn btn-outline btn-sm" onClick={() => onToggleActive(u)}>{u.is_active ? 'Desactiver' : 'Activer'}</button>
                 <button className="btn btn-danger btn-sm" onClick={() => onDeleteUser(u.id)}>Supprimer</button>
               </div>
             </div>
@@ -1242,9 +1071,7 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
   )
 }
 
-/* ══════════════════════════════════════════════════════════
-   SOUS-COMPOSANT : Tableau des resultats
-══════════════════════════════════════════════════════════ */
+/* ── Tableau résultats ── */
 function ResultsTab({ classId }) {
   const [data, setData] = useState(null)
   const [load, setLoad] = useState(true)
@@ -1276,30 +1103,22 @@ function ResultsTab({ classId }) {
         <tbody>
           {data.students.map((s, i) => (
             <tr key={s.student_id} style={{ background: i % 2 === 0 ? 'white' : '#f8fafc' }}>
-              <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--navy)', position: 'sticky', left: 0, background: i % 2 === 0 ? 'white' : '#f8fafc' }}>
-                {s.student_name}
-              </td>
+              <td style={{ padding: '9px 14px', fontWeight: 600, color: 'var(--navy)', position: 'sticky', left: 0, background: i % 2 === 0 ? 'white' : '#f8fafc' }}>{s.student_name}</td>
               <td style={{ padding: '9px 8px', color: 'var(--text-muted)', textAlign: 'center' }}>{s.matricule || '—'}</td>
-              {e.map(x => {
-                const r = s.exams[x.id]
-                return (
-                  <td key={`e${x.id}`} style={{ padding: '9px 8px', textAlign: 'center' }}>
-                    {!r?.submitted ? <span style={{ color: '#94a3b8' }}>NS</span>
-                      : !r.graded ? <span style={{ color: '#f59e0b' }}>En cours</span>
-                      : <span style={{ fontWeight: 700, color: r.score / r.max >= 0.5 ? '#16a34a' : '#d97706' }}>{r.score}/{r.max}</span>}
-                  </td>
-                )
-              })}
-              {h.map(x => {
-                const r = s.homeworks[x.id]
-                return (
-                  <td key={`h${x.id}`} style={{ padding: '9px 8px', textAlign: 'center' }}>
-                    {!r?.submitted ? <span style={{ color: '#94a3b8' }}>NS</span>
-                      : !r.graded ? <span style={{ color: '#f59e0b' }}>En cours</span>
-                      : <span style={{ fontWeight: 700, color: r.score / r.max >= 0.5 ? '#16a34a' : '#d97706' }}>{r.score}/{r.max}{r.late ? ' !' : ''}</span>}
-                  </td>
-                )
-              })}
+              {e.map(x => { const r = s.exams[x.id]; return (
+                <td key={`e${x.id}`} style={{ padding: '9px 8px', textAlign: 'center' }}>
+                  {!r?.submitted ? <span style={{ color: '#94a3b8' }}>NS</span>
+                    : !r.graded ? <span style={{ color: '#f59e0b' }}>En cours</span>
+                    : <span style={{ fontWeight: 700, color: r.score / r.max >= 0.5 ? '#16a34a' : '#d97706' }}>{r.score}/{r.max}</span>}
+                </td>
+              )})}
+              {h.map(x => { const r = s.homeworks[x.id]; return (
+                <td key={`h${x.id}`} style={{ padding: '9px 8px', textAlign: 'center' }}>
+                  {!r?.submitted ? <span style={{ color: '#94a3b8' }}>NS</span>
+                    : !r.graded ? <span style={{ color: '#f59e0b' }}>En cours</span>
+                    : <span style={{ fontWeight: 700, color: r.score / r.max >= 0.5 ? '#16a34a' : '#d97706' }}>{r.score}/{r.max}{r.late ? ' !' : ''}</span>}
+                </td>
+              )})}
             </tr>
           ))}
         </tbody>
