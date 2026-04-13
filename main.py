@@ -9,51 +9,40 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import Optional
 
-# Chargement .env
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-# Imports internes
 from models import (
     init_db, SessionLocal,
     User, Category, Course, Lesson, Enrollment, Message,
     get_db
 )
-from auth import (
-    hash_password, verify_password,
-    get_current_user
-)
+from auth import hash_password, verify_password, get_current_user
 
-# ROUTES
 from routes import (
-    auth         as auth_routes,
-    courses      as course_routes,
-    lessons      as lesson_routes,
-    categories   as category_routes,
-    messages     as message_routes,
-    forum        as forum_routes,
-    admin        as admin_routes,
-    exams        as exam_routes,
-    sessions     as session_routes,
+    auth          as auth_routes,
+    courses       as course_routes,
+    lessons       as lesson_routes,
+    categories    as category_routes,
+    messages      as message_routes,
+    forum         as forum_routes,
+    admin         as admin_routes,
+    exams         as exam_routes,
+    sessions      as session_routes,
     notifications as notif_routes,
-    homeworks    as homework_routes,
-    academic     as academic_routes,
+    homeworks     as homework_routes,
+    academic      as academic_routes,
     import_export as ie_routes,
-    classes      as class_routes,      # ✅ importé ici avec les autres
+    classes       as class_routes,
 )
 
-# ─────────────────────────────────────────────
-# LOGGER
-# ─────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────
-# ROLES / PERMISSIONS
-# ─────────────────────────────────────────────
+
 def require_role(role: str):
     def checker(user: User = Depends(get_current_user)):
         if user.role != role:
@@ -61,41 +50,84 @@ def require_role(role: str):
         return user
     return checker
 
+
 # ─────────────────────────────────────────────
-# SEED DATA
+# SEED — robuste pour Railway
 # ─────────────────────────────────────────────
 def seed():
     db = SessionLocal()
     try:
-        if db.query(User).count() > 0:
+        # ✅ On vérifie si l'admin existe par email, pas par count()
+        # Comme ça même si la DB est vide après un redéploiement,
+        # l'admin est recréé automatiquement
+        admin = db.query(User).filter_by(email="admin@unilearn.cm").first()
+        if admin:
+            logger.info("✅ Admin déjà présent — seed ignoré")
             return
 
-        logger.info("Initialisation des données...")
+        logger.info("🌱 Création des données initiales...")
 
+        # Catégories
         cats = [
-            Category(name="Sciences", color="#0EA5E9"),
-            Category(name="Maths",    color="#F59E0B"),
-            Category(name="Info",     color="#EF4444"),
+            Category(name="Sciences",      color="#0EA5E9"),
+            Category(name="Maths",         color="#F59E0B"),
+            Category(name="Informatique",  color="#EF4444"),
+            Category(name="Maintenance",   color="#10B981"),
+            Category(name="Electronique",  color="#8B5CF6"),
         ]
-        db.add_all(cats)
+        for c in cats:
+            exists = db.query(Category).filter_by(name=c.name).first()
+            if not exists:
+                db.add(c)
         db.flush()
 
+        # ✅ Compte admin
         admin = User(
-            name       = "Admin",
-            email      = "admin@unilearn.cm",
-            hashed_pwd = hash_password("admin1234"),
-            role       = "admin"
+            name="Administrateur",
+            email="admin@unilearn.cm",
+            hashed_pwd=hash_password("admin1234"),
+            role="admin",
+            is_active=True,
         )
         db.add(admin)
+
+        # ✅ Compte enseignant de démo
+        teacher = db.query(User).filter_by(email="prof@unilearn.cm").first()
+        if not teacher:
+            teacher = User(
+                name="Prof. Aminou",
+                email="prof@unilearn.cm",
+                hashed_pwd=hash_password("prof1234"),
+                role="teacher",
+                is_active=True,
+            )
+            db.add(teacher)
+
+        # ✅ Compte étudiant de démo
+        student = db.query(User).filter_by(email="etudiant@unilearn.cm").first()
+        if not student:
+            student = User(
+                name="Ahmadou Bello",
+                email="etudiant@unilearn.cm",
+                hashed_pwd=hash_password("etudiant1234"),
+                role="student",
+                is_active=True,
+            )
+            db.add(student)
+
         db.commit()
 
-        logger.info("Seed terminé")
+        logger.info("✅ Seed terminé avec succès")
+        logger.info("   admin@unilearn.cm    / admin1234")
+        logger.info("   prof@unilearn.cm     / prof1234")
+        logger.info("   etudiant@unilearn.cm / etudiant1234")
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Erreur seed: {e}")
+        logger.error(f"❌ Erreur seed: {e}")
     finally:
         db.close()
+
 
 # ─────────────────────────────────────────────
 # LIFESPAN
@@ -106,24 +138,22 @@ async def lifespan(app: FastAPI):
     seed()
     yield
 
+
 # ─────────────────────────────────────────────
 # APP
 # ─────────────────────────────────────────────
 app = FastAPI(
-    title    = "UniLearn API",
-    version  = "5.0.0",
-    lifespan = lifespan
+    title="UniLearn API",
+    version="5.0.0",
+    lifespan=lifespan,
 )
 
-# ─────────────────────────────────────────────
-# CORS
-# ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
-    allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ─────────────────────────────────────────────
@@ -142,7 +172,7 @@ app.include_router(notif_routes.router)
 app.include_router(homework_routes.router)
 app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
-app.include_router(class_routes.router)   # ✅ inclus une seule fois ici
+app.include_router(class_routes.router)
 
 # ─────────────────────────────────────────────
 # DASHBOARD
@@ -150,7 +180,7 @@ app.include_router(class_routes.router)   # ✅ inclus une seule fois ici
 @app.get("/api/dashboard")
 def dashboard(
     db:   Session = Depends(get_db),
-    user: User    = Depends(get_current_user)
+    user: User    = Depends(get_current_user),
 ):
     return {
         "users":       db.query(User).count(),
@@ -163,8 +193,8 @@ def dashboard(
 # PROFIL
 # ─────────────────────────────────────────────
 class UserUpdateIn(BaseModel):
-    name:  Optional[str]
-    email: Optional[EmailStr]
+    name:  Optional[str] = None
+    email: Optional[EmailStr] = None
 
 class ChangePasswordIn(BaseModel):
     current_password: str
@@ -174,13 +204,13 @@ class ChangePasswordIn(BaseModel):
 def update_profile(
     body: UserUpdateIn,
     db:   Session = Depends(get_db),
-    me:   User    = Depends(get_current_user)
+    me:   User    = Depends(get_current_user),
 ):
     if body.name:
         me.name = body.name
     if body.email:
         exists = db.query(User).filter(User.email == body.email).first()
-        if exists:
+        if exists and exists.id != me.id:
             raise HTTPException(400, "Email déjà utilisé")
         me.email = body.email
     db.commit()
@@ -190,10 +220,12 @@ def update_profile(
 def change_password(
     body: ChangePasswordIn,
     db:   Session = Depends(get_db),
-    me:   User    = Depends(get_current_user)
+    me:   User    = Depends(get_current_user),
 ):
     if not verify_password(body.current_password, me.hashed_pwd):
         raise HTTPException(400, "Mot de passe incorrect")
+    if len(body.new_password) < 6:
+        raise HTTPException(400, "Le mot de passe doit contenir au moins 6 caractères")
     me.hashed_pwd = hash_password(body.new_password)
     db.commit()
     return {"message": "Mot de passe modifié"}
@@ -201,7 +233,7 @@ def change_password(
 # ─────────────────────────────────────────────
 # UPLOAD
 # ─────────────────────────────────────────────
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/api/upload")
@@ -218,10 +250,10 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # ─────────────────────────────────────────────
 @app.exception_handler(Exception)
 def global_exception(request, exc):
-    logger.error(str(exc))
+    logger.error(f"Erreur non gérée: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"message": "Erreur interne"}
+        content={"message": "Erreur interne du serveur"},
     )
 
 # ─────────────────────────────────────────────
@@ -229,4 +261,8 @@ def global_exception(request, exc):
 # ─────────────────────────────────────────────
 @app.get("/")
 def root():
-    return {"message": "UniLearn API v5 🚀"}
+    return {
+        "message": "UniLearn API v5",
+        "status":  "running",
+        "docs":    "/docs",
+    }
