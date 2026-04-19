@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from models import get_db, User, ClassGroup, AcademicYear, Enrollment, Course, Exam, Homework
 from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/classes", tags=["classes"])
@@ -88,44 +87,33 @@ def get_class(
     if not cg:
         raise HTTPException(404, "Classe introuvable")
 
-    # Cours dont les etudiants de cette classe sont inscrits
-    # (ou cours assignes a l'enseignant responsable de la classe)
-    course_ids = set()
-    for student in cg.students:
-        for enrollment in db.query(Enrollment).filter_by(student_id=student.id).all():
-            course_ids.add(enrollment.course_id)
-    if cg.teacher_id:
-        teacher_courses = db.query(Course).filter_by(teacher_id=cg.teacher_id).all()
-        for c in teacher_courses:
-            course_ids.add(c.id)
+    # Cours directement lies a cette classe via class_group_id
+    class_courses = db.query(Course).filter(Course.class_group_id == class_id).all()
 
     courses = []
-    for cid in course_ids:
-        c = db.query(Course).filter_by(id=cid).first()
-        if c:
-            lesson_count   = len(c.lessons) if hasattr(c, 'lessons') else 0
-            student_count  = db.query(Enrollment).filter_by(course_id=c.id).count()
-            teacher_name   = c.teacher.name if c.teacher else ''
-            category_name  = c.category.name if hasattr(c, 'category') and c.category else ''
-            category_color = c.category.color if hasattr(c, 'category') and c.category else '#6366f1'
-            courses.append({
-                'id':           c.id,
-                'title':        c.title,
-                'description':  c.description,
-                'is_published': c.is_published,
-                'teacher_id':   c.teacher_id,
-                'teacher_name': teacher_name,
-                'category_name':  category_name,
-                'category_color': category_color,
-                'lesson_count':   lesson_count,
-                'student_count':  student_count,
-            })
+    for c in class_courses:
+        lesson_count  = len(c.lessons)
+        student_count = len(c.enrollments)
+        teacher_name  = c.teacher.name if c.teacher else ''
+        cat_name      = c.category.name  if c.category else ''
+        cat_color     = c.category.color if c.category else '#6366f1'
+        courses.append({
+            'id':            c.id,
+            'title':         c.title,
+            'description':   c.description,
+            'is_published':  c.is_published,
+            'teacher_id':    c.teacher_id,
+            'teacher_name':  teacher_name,
+            'category_name': cat_name,
+            'category_color':cat_color,
+            'lesson_count':  lesson_count,
+            'student_count': student_count,
+        })
 
     # Examens lies aux cours de la classe
     exams = []
-    for c in courses:
-        for ex in db.query(Exam).filter_by(course_id=c['id']).all():
-            sub_count = len(ex.submissions) if hasattr(ex, 'submissions') else 0
+    for c in class_courses:
+        for ex in c.exams:
             exams.append({
                 'id':               ex.id,
                 'title':            ex.title,
@@ -133,14 +121,13 @@ def get_class(
                 'is_published':     ex.is_published,
                 'starts_at':        ex.starts_at.isoformat() if ex.starts_at else None,
                 'ends_at':          ex.ends_at.isoformat()   if ex.ends_at   else None,
-                'submission_count': sub_count,
+                'submission_count': len(ex.submissions),
             })
 
     # Devoirs lies aux cours de la classe
     homeworks = []
-    for c in courses:
-        for hw in db.query(Homework).filter_by(course_id=c['id']).all():
-            sub_count = len(hw.submissions) if hasattr(hw, 'submissions') else 0
+    for c in class_courses:
+        for hw in c.homeworks:
             homeworks.append({
                 'id':               hw.id,
                 'title':            hw.title,
@@ -148,24 +135,24 @@ def get_class(
                 'is_published':     hw.is_published,
                 'due_date':         hw.due_date.isoformat() if hw.due_date else None,
                 'max_score':        hw.max_score,
-                'submission_count': sub_count,
+                'submission_count': len(hw.submissions),
             })
 
     base = _enrich(cg)
-    base['courses']   = courses
-    base['students']  = [
+    base['courses']  = courses
+    base['students'] = [
         {
             'id':        s.id,
             'name':      s.name,
             'email':     s.email,
-            'matricule': s.matricule if hasattr(s, 'matricule') else None,
+            'matricule': s.matricule,
             'is_active': s.is_active,
         }
         for s in cg.students
     ]
     base['exams']     = exams
     base['homeworks'] = homeworks
-    base['stats']     = {
+    base['stats'] = {
         'total_students':  len(cg.students),
         'total_courses':   len(courses),
         'total_exams':     len(exams),
@@ -173,8 +160,6 @@ def get_class(
     }
     base['academic_year_name'] = cg.academic_year.name if cg.academic_year else ''
     return base
-
-
 @router.post("", status_code=201)
 def create_class(
     body: ClassIn,
