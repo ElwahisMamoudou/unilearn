@@ -7,13 +7,17 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from models import User, get_db
-
 SECRET_KEY = "unilearn-super-secret-key-change-in-production"
 ALGORITHM  = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+def _get_db():
+    """Lazy wrapper around models.get_db to avoid circular imports at module load."""
+    from models import get_db
+    yield from get_db()
 
 
 def hash_password(password: str) -> str:
@@ -44,8 +48,9 @@ def verify_token(token: str) -> dict:
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> User:
+    db: Session = Depends(_get_db),
+):
+    from models import User
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Token invalide ou expiré",
@@ -68,7 +73,7 @@ def get_current_user(
 
 # ── Gardes de rôles ───────────────────────────────
 
-def require_student(me: User = Depends(get_current_user)) -> User:
+def require_student(me=Depends(get_current_user)):
     """Seuls les étudiants peuvent accéder."""
     if me.role != "student":
         raise HTTPException(
@@ -78,7 +83,7 @@ def require_student(me: User = Depends(get_current_user)) -> User:
     return me
 
 
-def require_teacher(me: User = Depends(get_current_user)) -> User:
+def require_teacher(me=Depends(get_current_user)):
     """Seuls les enseignants (et admins) peuvent accéder."""
     if me.role not in ("teacher", "admin"):
         raise HTTPException(
@@ -88,7 +93,7 @@ def require_teacher(me: User = Depends(get_current_user)) -> User:
     return me
 
 
-def require_admin(me: User = Depends(get_current_user)) -> User:
+def require_admin(me=Depends(get_current_user)):
     """Seuls les admins peuvent accéder."""
     if me.role != "admin":
         raise HTTPException(
@@ -98,7 +103,7 @@ def require_admin(me: User = Depends(get_current_user)) -> User:
     return me
 
 
-def require_student_or_admin(me: User = Depends(get_current_user)) -> User:
+def require_student_or_admin(me=Depends(get_current_user)):
     """Étudiants et admins uniquement — pas les enseignants."""
     if me.role not in ("student", "admin"):
         raise HTTPException(
