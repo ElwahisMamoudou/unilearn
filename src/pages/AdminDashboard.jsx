@@ -38,13 +38,14 @@ export default function AdminDashboard() {
   const [classes,    setClasses]    = useState([])
   const [allUsers,   setAllUsers]   = useState([])
   const [categories, setCategories] = useState([])
+  const [years,      setYears]      = useState([])   // ✅ années académiques
   const [loading,    setLoading]    = useState(true)
 
-  const [view,       setView]       = useState('classes')
-  const [selClass,   setSelClass]   = useState(null)
-  const [classDetail,setClassDetail]= useState(null)
-  const [detailTab,  setDetailTab]  = useState('courses')
-  const [detailLoad, setDetailLoad] = useState(false)
+  const [view,        setView]        = useState('classes')
+  const [selClass,    setSelClass]    = useState(null)
+  const [classDetail, setClassDetail] = useState(null)
+  const [detailTab,   setDetailTab]   = useState('courses')
+  const [detailLoad,  setDetailLoad]  = useState(false)
 
   const [classModal,  setClassModal]  = useState(false)
   const [userModal,   setUserModal]   = useState(false)
@@ -53,11 +54,20 @@ export default function AdminDashboard() {
   const [editUser,    setEditUser]    = useState(null)
   const [editCourse,  setEditCourse]  = useState(null)
 
-  /* ✅ academic_year est maintenant un texte libre, pas un ID */
+  /* ✅ classForm avec academic_year_id (sélection) ET academic_year_name (création) */
   const [classForm, setClassForm] = useState({
     name: '', code: '', description: '', level: '',
-    academic_year: '', teacher_id: '', max_students: 50, is_active: true,
+    academic_year_id: '',   // ID de l'année existante choisie
+    teacher_id: '', max_students: 50, is_active: true,
   })
+
+  /* ✅ State pour créer une nouvelle année depuis le modal */
+  const [showNewYear,  setShowNewYear]  = useState(false)
+  const [newYearForm,  setNewYearForm]  = useState({
+    name: '', start_date: '', end_date: '', is_current: false,
+  })
+  const [savingYear,   setSavingYear]   = useState(false)
+
   const [userForm,   setUserForm]   = useState({ name: '', email: '', password: '', role: 'student' })
   const [courseForm, setCourseForm] = useState({
     title: '', description: '', category_id: '', teacher_id: '', is_published: true,
@@ -65,11 +75,10 @@ export default function AdminDashboard() {
 
   const [enrolled,       setEnrolled]       = useState([])
   const [enrollCourseId, setEnrollCourseId] = useState(null)
-
-  const [studModal,     setStudModal]     = useState(false)
-  const [studSearch,    setStudSearch]    = useState('')
-  const [selectedStuds, setSelectedStuds] = useState([])
-  const [search,        setSearch]        = useState('')
+  const [studModal,      setStudModal]      = useState(false)
+  const [studSearch,     setStudSearch]     = useState('')
+  const [selectedStuds,  setSelectedStuds]  = useState([])
+  const [search,         setSearch]         = useState('')
 
   const teachers = useMemo(() => allUsers.filter(u => u.role === 'teacher'), [allUsers])
   const students = useMemo(() => allUsers.filter(u => u.role === 'student'),  [allUsers])
@@ -78,16 +87,18 @@ export default function AdminDashboard() {
   const loadAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, cl, u, cat] = await Promise.all([
+      const [s, cl, u, cat, yr] = await Promise.all([
         api.get('/admin/stats'),
         api.get('/classes'),
         api.get('/admin/users'),
         api.get('/categories'),
+        api.get('/academic/years'),
       ])
       setStats(s.data)
       setClasses(cl.data)
       setAllUsers(u.data)
       setCategories(cat.data)
+      setYears(yr.data)
     } catch {
       flash('Erreur de chargement', 'error')
     } finally {
@@ -119,7 +130,15 @@ export default function AdminDashboard() {
   /* ── Classes CRUD ── */
   const openCreateClass = () => {
     setEditClass(null)
-    setClassForm({ name: '', code: '', description: '', level: '', academic_year: '', teacher_id: '', max_students: 50, is_active: true })
+    // Pré-sélectionner l'année courante si elle existe
+    const currentYear = years.find(y => y.is_current)
+    setClassForm({
+      name: '', code: '', description: '', level: '',
+      academic_year_id: currentYear ? String(currentYear.id) : '',
+      teacher_id: '', max_students: 50, is_active: true,
+    })
+    setShowNewYear(false)
+    setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
     setClassModal(true)
   }
 
@@ -127,40 +146,71 @@ export default function AdminDashboard() {
     e?.stopPropagation()
     setEditClass(cls)
     setClassForm({
-      name:          cls.name,
-      code:          cls.code          || '',
-      description:   cls.description   || '',
-      level:         cls.level         || '',
-      academic_year: cls.academic_year_name || cls.academic_year || '',
-      teacher_id:    cls.teacher_id    || '',
-      max_students:  cls.max_students,
-      is_active:     cls.is_active,
+      name:             cls.name,
+      code:             cls.code          || '',
+      description:      cls.description   || '',
+      level:            cls.level         || '',
+      academic_year_id: cls.academic_year_id ? String(cls.academic_year_id) : '',
+      teacher_id:       cls.teacher_id    || '',
+      max_students:     cls.max_students,
+      is_active:        cls.is_active,
     })
+    setShowNewYear(false)
+    setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
     setClassModal(true)
+  }
+
+  /* ✅ Créer une nouvelle année académique depuis le modal classe */
+  const createYearInline = async () => {
+    if (!newYearForm.name.trim()) return flash('Le nom de l\'année est requis', 'error')
+    if (!newYearForm.start_date)  return flash('La date de début est requise', 'error')
+    if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
+
+    setSavingYear(true)
+    try {
+      const { data } = await api.post('/academic/years', {
+        name:       newYearForm.name,
+        start_date: new Date(newYearForm.start_date).toISOString(),
+        end_date:   new Date(newYearForm.end_date).toISOString(),
+        is_current: newYearForm.is_current,
+        semesters:  [],
+      })
+      // Mettre à jour la liste des années et sélectionner la nouvelle
+      const newYears = [...years, data].sort((a, b) =>
+        new Date(b.start_date) - new Date(a.start_date)
+      )
+      setYears(newYears)
+      setClassForm(f => ({ ...f, academic_year_id: String(data.id) }))
+      setShowNewYear(false)
+      setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
+      flash(`Année ${data.name} créée et sélectionnée !`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur création année', 'error')
+    } finally {
+      setSavingYear(false)
+    }
   }
 
   const saveClass = async () => {
     if (!classForm.name.trim()) return flash('Le nom est requis', 'error')
-
-    /* ✅ On envoie academic_year comme texte — le backend le stocke via AcademicYear ou directement */
     const payload = {
-      name:          classForm.name,
-      code:          classForm.code          || null,
-      description:   classForm.description   || null,
-      level:         classForm.level         || null,
-      academic_year: classForm.academic_year || null,
-      teacher_id:    classForm.teacher_id    ? parseInt(classForm.teacher_id) : null,
-      max_students:  parseInt(classForm.max_students),
-      is_active:     classForm.is_active,
+      name:             classForm.name,
+      code:             classForm.code          || null,
+      description:      classForm.description   || null,
+      level:            classForm.level         || null,
+      academic_year_id: classForm.academic_year_id ? parseInt(classForm.academic_year_id) : null,
+      teacher_id:       classForm.teacher_id    ? parseInt(classForm.teacher_id)          : null,
+      max_students:     parseInt(classForm.max_students),
+      is_active:        classForm.is_active,
     }
     try {
       if (editClass) {
         await api.put(`/classes/${editClass.id}`, payload)
-        flash('Classe mise a jour')
+        flash('Classe mise à jour')
         if (classDetail?.id === editClass.id) openClass({ ...editClass, ...payload })
       } else {
         await api.post('/classes', payload)
-        flash('Classe creee')
+        flash('Classe créée')
       }
       setClassModal(false)
       loadAll()
@@ -174,7 +224,7 @@ export default function AdminDashboard() {
     if (!confirm('Supprimer cette classe et tout son contenu ?')) return
     try {
       await api.delete(`/classes/${id}`)
-      flash('Classe supprimee')
+      flash('Classe supprimée')
       if (selClass?.id === id) backToClasses()
       loadAll()
     } catch { flash('Erreur suppression', 'error') }
@@ -198,10 +248,10 @@ export default function AdminDashboard() {
     try {
       if (editUser) {
         await api.put(`/admin/users/${editUser.id}`, { name: userForm.name, role: userForm.role, is_active: editUser.is_active })
-        flash('Utilisateur modifie')
+        flash('Utilisateur modifié')
       } else {
         await api.post('/admin/users', userForm)
-        flash('Utilisateur cree')
+        flash('Utilisateur créé')
       }
       setUserModal(false)
       loadAll()
@@ -210,15 +260,15 @@ export default function AdminDashboard() {
 
   const toggleActive = async u => {
     await api.put(`/admin/users/${u.id}`, { is_active: !u.is_active })
-    flash(`Compte ${u.is_active ? 'desactive' : 'active'}`)
+    flash(`Compte ${u.is_active ? 'désactivé' : 'activé'}`)
     loadAll()
   }
 
   const deleteUser = async id => {
-    if (!confirm('Supprimer cet utilisateur definitvement ?')) return
+    if (!confirm('Supprimer cet utilisateur définitivement ?')) return
     try {
       await api.delete(`/admin/users/${id}`)
-      flash('Utilisateur supprime')
+      flash('Utilisateur supprimé')
       loadAll()
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
@@ -259,10 +309,10 @@ export default function AdminDashboard() {
     try {
       if (editCourse) {
         await api.put(`/admin/courses/${editCourse.id}`, payload)
-        flash('Cours modifie')
+        flash('Cours modifié')
       } else {
         await api.post('/admin/courses', payload)
-        flash('Cours cree')
+        flash('Cours créé')
       }
       setCourseModal(false)
       openClass(selClass)
@@ -270,10 +320,10 @@ export default function AdminDashboard() {
   }
 
   const deleteCourse = async id => {
-    if (!confirm('Supprimer ce cours et toutes ses lecons ?')) return
+    if (!confirm('Supprimer ce cours et toutes ses leçons ?')) return
     try {
       await api.delete(`/admin/courses/${id}`)
-      flash('Cours supprime')
+      flash('Cours supprimé')
       openClass(selClass)
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
@@ -283,7 +333,7 @@ export default function AdminDashboard() {
       title: c.title, description: c.description,
       teacher_id: c.teacher_id, is_published: !c.is_published,
     })
-    flash(c.is_published ? 'Cours depublie' : 'Cours publie')
+    flash(c.is_published ? 'Cours dépublié' : 'Cours publié')
     openClass(selClass)
   }
 
@@ -297,18 +347,18 @@ export default function AdminDashboard() {
   const enrollStudent = async studentId => {
     try {
       await api.post(`/admin/courses/${enrollCourseId}/enroll`, { student_ids: [studentId] })
-      flash('Etudiant inscrit')
+      flash('Étudiant inscrit')
       loadEnrolled(enrollCourseId)
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
   const unenrollStudent = async studentId => {
     await api.delete(`/admin/courses/${enrollCourseId}/students/${studentId}`)
-    flash('Etudiant retire')
+    flash('Étudiant retiré')
     loadEnrolled(enrollCourseId)
   }
 
-  /* ── Etudiants dans la classe ── */
+  /* ── Étudiants dans la classe ── */
   const openAddStudents = () => {
     const ids = new Set((classDetail?.students || []).map(s => s.id))
     setSelectedStuds([])
@@ -320,7 +370,7 @@ export default function AdminDashboard() {
     if (!selectedStuds.length) return
     try {
       const { data } = await api.post(`/classes/${classDetail.id}/students`, { student_ids: selectedStuds })
-      flash(`${data.added} etudiant(s) ajoute(s)`)
+      flash(`${data.added} étudiant(s) ajouté(s)`)
       setStudModal(false)
       openClass(selClass)
     } catch { flash('Erreur', 'error') }
@@ -330,7 +380,7 @@ export default function AdminDashboard() {
     if (!confirm(`Retirer ${name} de la classe ?`)) return
     try {
       await api.delete(`/classes/${classDetail.id}/students/${sid}`)
-      flash(`${name} retire(e)`)
+      flash(`${name} retiré(e)`)
       openClass(selClass)
     } catch { flash('Erreur', 'error') }
   }
@@ -380,11 +430,11 @@ export default function AdminDashboard() {
           }}>
             <div>
               <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>Administration UniLearn</h2>
-              <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>Gerez vos classes, enseignants, etudiants et cours depuis ce panneau.</p>
+              <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>Gérez vos classes, enseignants, étudiants et cours depuis ce panneau.</p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }}
-                onClick={() => setView('users')}>Gerer les utilisateurs</button>
+                onClick={() => setView('users')}>Gérer les utilisateurs</button>
               <button className="btn btn-sm" style={{ background: 'var(--gold)', color: '#fff', border: 'none' }}
                 onClick={openCreateClass}>+ Nouvelle classe</button>
             </div>
@@ -411,7 +461,7 @@ export default function AdminDashboard() {
             style={{ maxWidth: 360, marginBottom: 20 }} />
 
           {filteredClasses.length === 0 ? (
-            <div className="empty-state"><h3>Aucune classe</h3><p>Creez la premiere classe pour commencer.</p></div>
+            <div className="empty-state"><h3>Aucune classe</h3><p>Créez la première classe pour commencer.</p></div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
               {filteredClasses.map(cls => (
@@ -466,22 +516,26 @@ export default function AdminDashboard() {
         />
       )}
 
-      {/* ── MODAL CLASSE ── */}
+      {/* ════════════ MODAL CLASSE ════════════ */}
       {classModal && (
         <div className="modal-overlay" onClick={() => setClassModal(false)}>
-          <div className="modal" style={{ maxWidth: 540, width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}
+          <div className="modal" style={{ maxWidth: 560, width: '95vw', maxHeight: '92vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{editClass ? 'Modifier la classe' : 'Nouvelle classe'}</span>
               <button className="modal-close" onClick={() => setClassModal(false)}>x</button>
             </div>
             <div className="modal-body">
+
+              {/* Nom */}
               <div className="form-group">
                 <label className="form-label">Nom *</label>
                 <input className="form-input" value={classForm.name}
                   onChange={e => setClassForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Ex : L1 Informatique" />
               </div>
+
+              {/* Code + Niveau */}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Code</label>
@@ -493,39 +547,140 @@ export default function AdminDashboard() {
                   <label className="form-label">Niveau</label>
                   <select className="form-select" value={classForm.level}
                     onChange={e => setClassForm(f => ({ ...f, level: e.target.value }))}>
-                    <option value="">-- Selectionner --</option>
+                    <option value="">-- Sélectionner --</option>
                     {['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2', 'Doctorat', 'BTS', 'Autre'].map(l =>
                       <option key={l} value={l}>{l}</option>
                     )}
                   </select>
                 </div>
               </div>
+
+              {/* Description */}
               <div className="form-group">
                 <label className="form-label">Description</label>
                 <textarea className="form-input" rows={2} value={classForm.description}
                   onChange={e => setClassForm(f => ({ ...f, description: e.target.value }))}
                   style={{ resize: 'vertical' }} />
               </div>
-              <div className="form-row">
-                {/* ✅ Année académique en texte libre */}
-                <div className="form-group">
-                  <label className="form-label">Annee academique</label>
-                  <input className="form-input" value={classForm.academic_year}
-                    onChange={e => setClassForm(f => ({ ...f, academic_year: e.target.value }))}
-                    placeholder="Ex : 2024-2025" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Enseignant responsable</label>
-                  <select className="form-select" value={classForm.teacher_id}
-                    onChange={e => setClassForm(f => ({ ...f, teacher_id: e.target.value }))}>
-                    <option value="">-- Selectionner --</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+
+              {/* ✅ ANNÉE ACADÉMIQUE — sélection ou création */}
+              <div className="form-group">
+                <label className="form-label">Année académique</label>
+
+                {/* Sélecteur d'années existantes */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    className="form-select"
+                    style={{ flex: 1 }}
+                    value={classForm.academic_year_id}
+                    onChange={e => setClassForm(f => ({ ...f, academic_year_id: e.target.value }))}
+                  >
+                    <option value="">-- Choisir une année --</option>
+                    {years.map(y => (
+                      <option key={y.id} value={y.id}>
+                        {y.name}{y.is_current ? ' ✓ (courante)' : ''}
+                      </option>
+                    ))}
                   </select>
+                  {/* Bouton pour créer une nouvelle année */}
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                    onClick={() => setShowNewYear(v => !v)}
+                  >
+                    {showNewYear ? '✕ Annuler' : '+ Nouvelle année'}
+                  </button>
                 </div>
+
+                {/* Afficher l'année sélectionnée */}
+                {classForm.academic_year_id && !showNewYear && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--success)', fontWeight: 600 }}>
+                    ✓ {years.find(y => String(y.id) === classForm.academic_year_id)?.name}
+                  </div>
+                )}
+
+                {/* ✅ Formulaire inline de création d'année */}
+                {showNewYear && (
+                  <div style={{
+                    marginTop: 12, padding: 16, background: '#f0f9ff',
+                    borderRadius: 10, border: '1px solid #bae6fd',
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>
+                      📅 Créer une nouvelle année académique
+                    </div>
+
+                    {/* Nom de l'année */}
+                    <div className="form-group">
+                      <label className="form-label">Nom *</label>
+                      <input
+                        className="form-input"
+                        value={newYearForm.name}
+                        onChange={e => setNewYearForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="Ex : 2025-2026"
+                      />
+                    </div>
+
+                    {/* Dates */}
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Date de début *</label>
+                        <input
+                          className="form-input"
+                          type="date"
+                          value={newYearForm.start_date}
+                          onChange={e => setNewYearForm(f => ({ ...f, start_date: e.target.value }))}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Date de fin *</label>
+                        <input
+                          className="form-input"
+                          type="date"
+                          value={newYearForm.end_date}
+                          onChange={e => setNewYearForm(f => ({ ...f, end_date: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Marquer comme courante */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, marginBottom: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={newYearForm.is_current}
+                        onChange={e => setNewYearForm(f => ({ ...f, is_current: e.target.checked }))}
+                        style={{ width: 15, height: 15 }}
+                      />
+                      Marquer comme année courante
+                    </label>
+
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={createYearInline}
+                      disabled={savingYear}
+                      style={{ width: '100%' }}
+                    >
+                      {savingYear ? 'Création...' : '✓ Créer et sélectionner cette année'}
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* Enseignant responsable */}
+              <div className="form-group">
+                <label className="form-label">Enseignant responsable</label>
+                <select className="form-select" value={classForm.teacher_id}
+                  onChange={e => setClassForm(f => ({ ...f, teacher_id: e.target.value }))}>
+                  <option value="">-- Sélectionner --</option>
+                  {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+
+              {/* Capacité + Active */}
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Capacite max</label>
+                  <label className="form-label">Capacité max</label>
                   <input className="form-input" type="number" min={1} value={classForm.max_students}
                     onChange={e => setClassForm(f => ({ ...f, max_students: parseInt(e.target.value) }))} />
                 </div>
@@ -538,16 +693,17 @@ export default function AdminDashboard() {
                   </label>
                 </div>
               </div>
+
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setClassModal(false)}>Annuler</button>
-              <button className="btn btn-primary" onClick={saveClass}>{editClass ? 'Enregistrer' : 'Creer'}</button>
+              <button className="btn btn-primary" onClick={saveClass}>{editClass ? 'Enregistrer' : 'Créer'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL UTILISATEUR ── */}
+      {/* ════════════ MODAL UTILISATEUR ════════════ */}
       {userModal && (
         <div className="modal-overlay" onClick={() => setUserModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -577,10 +733,10 @@ export default function AdminDashboard() {
                   </>
                 )}
                 <div className="form-group">
-                  <label className="form-label">Role</label>
+                  <label className="form-label">Rôle</label>
                   <select className="form-select" value={userForm.role}
                     onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
-                    <option value="student">Etudiant</option>
+                    <option value="student">Étudiant</option>
                     <option value="teacher">Enseignant</option>
                     <option value="admin">Administrateur</option>
                   </select>
@@ -595,7 +751,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── MODAL COURS ── */}
+      {/* ════════════ MODAL COURS ════════════ */}
       {courseModal && (
         <div className="modal-overlay" onClick={() => setCourseModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -626,10 +782,10 @@ export default function AdminDashboard() {
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Categorie</label>
+                    <label className="form-label">Catégorie</label>
                     <select className="form-select" value={courseForm.category_id}
                       onChange={e => setCourseForm({ ...courseForm, category_id: e.target.value })}>
-                      <option value="">Sans categorie</option>
+                      <option value="">Sans catégorie</option>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
@@ -638,7 +794,7 @@ export default function AdminDashboard() {
                   <label className="form-label">Statut</label>
                   <select className="form-select" value={courseForm.is_published}
                     onChange={e => setCourseForm({ ...courseForm, is_published: e.target.value === 'true' })}>
-                    <option value="true">Publie</option>
+                    <option value="true">Publié</option>
                     <option value="false">Brouillon</option>
                   </select>
                 </div>
@@ -652,13 +808,13 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ── MODAL AJOUTER ETUDIANTS ── */}
+      {/* ════════════ MODAL AJOUTER ÉTUDIANTS ════════════ */}
       {studModal?.open && (
         <div className="modal-overlay" onClick={() => setStudModal(false)}>
           <div className="modal" style={{ maxWidth: 520, width: '95vw', maxHeight: '85vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Ajouter des etudiants</span>
+              <span className="modal-title">Ajouter des étudiants</span>
               <button className="modal-close" onClick={() => setStudModal(false)}>x</button>
             </div>
             <div className="modal-body">
@@ -684,7 +840,7 @@ export default function AdminDashboard() {
               </div>
               {selectedStuds.length > 0 && (
                 <div style={{ marginTop: 8, fontSize: 13, color: '#3b82f6', fontWeight: 600 }}>
-                  {selectedStuds.length} selectionne(s)
+                  {selectedStuds.length} sélectionné(s)
                 </div>
               )}
             </div>
@@ -724,12 +880,16 @@ function ClassCard({ cls, onClick, onEdit, onDelete }) {
           </span>
         </div>
         {cls.level && <div style={{ fontSize: 12, color: c, fontWeight: 600, marginBottom: 6 }}>{cls.level}</div>}
-        {cls.teacher_name && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Enseignant : {cls.teacher_name}</div>}
-        {cls.academic_year_name && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>📅 {cls.academic_year_name}</div>}
+        {cls.teacher_name && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Enseignant : {cls.teacher_name}</div>}
+        {cls.academic_year_name && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span>📅</span> {cls.academic_year_name}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#3b82f6' }}>{cls.student_count}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: .5 }}>etudiants</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: .5 }}>étudiants</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#10b981' }}>{cls.course_count}</div>
@@ -761,24 +921,22 @@ function ClassDetailView({
   const c = lvlColor(selClass.level)
   const tabs = [
     { id: 'courses',     label: `Cours (${classDetail?.courses?.length ?? '...'})` },
-    { id: 'students',    label: `Etudiants (${classDetail?.students?.length ?? '...'})` },
+    { id: 'students',    label: `Étudiants (${classDetail?.students?.length ?? '...'})` },
     { id: 'teachers',    label: 'Enseignants' },
     { id: 'enrollments', label: 'Inscriptions aux cours' },
-    { id: 'results',     label: 'Resultats' },
+    { id: 'results',     label: 'Résultats' },
   ]
 
   return (
     <div>
-      {/* Fil d'Ariane */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, fontSize: 14, color: 'var(--text-muted)' }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontWeight: 600, padding: 0, fontSize: 14 }}>
-          Retour aux classes
+          ← Retour aux classes
         </button>
         <span>/</span>
         <span style={{ color: 'var(--navy)', fontWeight: 700 }}>{selClass.name}</span>
       </div>
 
-      {/* En-tete */}
       <div style={{ background: 'linear-gradient(135deg, var(--navy), #1a3a6e)', borderRadius: 16, padding: '24px 28px', marginBottom: 24, color: 'white', borderLeft: `5px solid ${c}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
@@ -790,7 +948,7 @@ function ClassDetailView({
               {selClass.level        && <span>{selClass.level}</span>}
               {selClass.teacher_name && <span>Enseignant : {selClass.teacher_name}</span>}
               {(classDetail?.academic_year_name || selClass.academic_year_name) && (
-                <span>Annee : {classDetail?.academic_year_name || selClass.academic_year_name}</span>
+                <span>📅 {classDetail?.academic_year_name || selClass.academic_year_name}</span>
               )}
             </div>
           </div>
@@ -799,15 +957,13 @@ function ClassDetailView({
             <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }} onClick={onExport}>Export CSV</button>
           </div>
         </div>
-
-        {/* Stats */}
         {classDetail && (
           <div style={{ display: 'flex', gap: 24, marginTop: 16, flexWrap: 'wrap' }}>
             {[
-              { l: 'Etudiants', v: classDetail.stats?.total_students ?? classDetail.students?.length, c: '#60a5fa' },
+              { l: 'Étudiants', v: classDetail.stats?.total_students ?? classDetail.students?.length, c: '#60a5fa' },
               { l: 'Cours',     v: classDetail.stats?.total_courses  ?? classDetail.courses?.length,  c: '#34d399' },
               { l: 'Examens',   v: classDetail.stats?.total_exams    ?? classDetail.exams?.length,    c: '#fbbf24' },
-              { l: 'Devoirs',   v: classDetail.stats?.total_homeworks ?? classDetail.homeworks?.length,c: '#a78bfa' },
+              { l: 'Devoirs',   v: classDetail.stats?.total_homeworks ?? classDetail.homeworks?.length, c: '#a78bfa' },
             ].map(s => (
               <div key={s.l}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: s.c }}>{s.v ?? 0}</div>
@@ -818,7 +974,6 @@ function ClassDetailView({
         )}
       </div>
 
-      {/* Onglets */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setDetailTab(t.id)} style={{
@@ -838,7 +993,6 @@ function ClassDetailView({
         <div className="empty-state"><h3>Chargement...</h3></div>
       ) : (
         <>
-          {/* ── COURS ── */}
           {detailTab === 'courses' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -846,7 +1000,7 @@ function ClassDetailView({
                 <button className="btn btn-primary btn-sm" onClick={onCreateCourse}>+ Nouveau cours</button>
               </div>
               {(classDetail.courses?.length ?? 0) === 0 ? (
-                <div className="empty-state"><h3>Aucun cours</h3><p>Creez le premier cours pour cette classe.</p></div>
+                <div className="empty-state"><h3>Aucun cours</h3><p>Créez le premier cours pour cette classe.</p></div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {(classDetail.courses ?? []).map(course => (
@@ -855,16 +1009,16 @@ function ClassDetailView({
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{course.title}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {course.teacher_name} &bull; {course.lesson_count ?? 0} lecon(s) &bull; {course.student_count ?? 0} etudiant(s)
+                            {course.teacher_name} · {course.lesson_count ?? 0} leçon(s) · {course.student_count ?? 0} étudiant(s)
                           </div>
                         </div>
                         <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: course.is_published ? '#d1fae5' : '#fef9c3', color: course.is_published ? '#065f46' : '#854d0e' }}>
-                          {course.is_published ? 'Publie' : 'Brouillon'}
+                          {course.is_published ? 'Publié' : 'Brouillon'}
                         </span>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button className="btn btn-outline btn-sm" onClick={() => navigate(`/courses/${course.id}`)}>Voir</button>
                           <button className="btn btn-outline btn-sm" onClick={() => onEditCourse(course)}>Modifier</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>{course.is_published ? 'Depublier' : 'Publier'}</button>
+                          <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>{course.is_published ? 'Dépublier' : 'Publier'}</button>
                           <button className="btn btn-outline btn-sm" onClick={() => { onLoadEnrolled(course.id); setDetailTab('enrollments') }}>Inscrire</button>
                           <button className="btn btn-danger btn-sm" onClick={() => onDeleteCourse(course.id)}>Supprimer</button>
                         </div>
@@ -876,14 +1030,13 @@ function ClassDetailView({
             </div>
           )}
 
-          {/* ── ETUDIANTS ── */}
           {detailTab === 'students' && (
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <button className="btn btn-primary btn-sm" onClick={onAddStudents}>+ Ajouter des etudiants</button>
+                <button className="btn btn-primary btn-sm" onClick={onAddStudents}>+ Ajouter des étudiants</button>
               </div>
               {(classDetail.students?.length ?? 0) === 0 ? (
-                <div className="empty-state"><h3>Aucun etudiant dans cette classe</h3></div>
+                <div className="empty-state"><h3>Aucun étudiant dans cette classe</h3></div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 10 }}>
                   {(classDetail.students ?? []).map(s => (
@@ -907,10 +1060,9 @@ function ClassDetailView({
             </div>
           )}
 
-          {/* ── ENSEIGNANTS ── */}
           {detailTab === 'teachers' && (
             <div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Enseignants assignes a cette classe ou a ses cours.</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>Enseignants assignés à cette classe ou à ses cours.</p>
               {(() => {
                 const teacherIds = new Set()
                 const list = []
@@ -924,7 +1076,7 @@ function ClassDetailView({
                     if (t) { teacherIds.add(t.id); list.push({ ...t, role_in_class: `Cours : ${c.title.slice(0, 30)}` }) }
                   }
                 })
-                if (list.length === 0) return <div className="empty-state"><h3>Aucun enseignant assigne</h3></div>
+                if (list.length === 0) return <div className="empty-state"><h3>Aucun enseignant assigné</h3></div>
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {list.map(t => (
@@ -947,11 +1099,10 @@ function ClassDetailView({
             </div>
           )}
 
-          {/* ── INSCRIPTIONS ── */}
           {detailTab === 'enrollments' && (
             <div>
               <div className="form-group" style={{ maxWidth: 420, marginBottom: 24 }}>
-                <label className="form-label">Selectionner un cours de cette classe</label>
+                <label className="form-label">Sélectionner un cours de cette classe</label>
                 <select className="form-select" value={enrollCourseId || ''}
                   onChange={e => onLoadEnrolled(parseInt(e.target.value))}>
                   <option value="">-- Choisir un cours --</option>
@@ -965,7 +1116,7 @@ function ClassDetailView({
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>Inscrits ({enrolled.length})</div>
                     {enrolled.length === 0 ? (
-                      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Aucun etudiant inscrit.</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Aucun étudiant inscrit.</div>
                     ) : enrolled.map(s => (
                       <div key={s.id} className="card" style={{ marginBottom: 8 }}>
                         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -979,9 +1130,9 @@ function ClassDetailView({
                     ))}
                   </div>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>A inscrire ({availableForEnroll.length})</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: 'var(--navy)' }}>À inscrire ({availableForEnroll.length})</div>
                     {availableForEnroll.length === 0 ? (
-                      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Tous les etudiants sont inscrits.</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Tous les étudiants sont inscrits.</div>
                     ) : availableForEnroll.map(s => (
                       <div key={s.id} className="card" style={{ marginBottom: 8 }}>
                         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -999,7 +1150,6 @@ function ClassDetailView({
             </div>
           )}
 
-          {/* ── RESULTATS ── */}
           {detailTab === 'results' && <ResultsTab classId={classDetail.id} />}
         </>
       )}
@@ -1021,7 +1171,7 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, fontSize: 14 }}>
         <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontWeight: 600, padding: 0, fontSize: 14 }}>
-          Retour aux classes
+          ← Retour aux classes
         </button>
         <span style={{ color: 'var(--text-muted)' }}>/</span>
         <span style={{ color: 'var(--navy)', fontWeight: 700 }}>Gestion des utilisateurs</span>
@@ -1029,7 +1179,7 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         {['students', 'teachers', 'admins'].map(t => (
           <button key={t} onClick={() => setTab(t)} className={`btn btn-sm ${tab === t ? 'btn-primary' : 'btn-outline'}`}>
-            {t === 'students' ? 'Etudiants' : t === 'teachers' ? 'Enseignants' : 'Admins'}
+            {t === 'students' ? 'Étudiants' : t === 'teachers' ? 'Enseignants' : 'Admins'}
             <span style={{ marginLeft: 6, opacity: .7, fontSize: 11 }}>
               ({allUsers.filter(u => u.role === (t === 'teachers' ? 'teacher' : t === 'admins' ? 'admin' : 'student')).length})
             </span>
@@ -1060,7 +1210,7 @@ function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive,
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="btn btn-outline btn-sm" onClick={() => onEditUser(u)}>Modifier</button>
-                <button className="btn btn-outline btn-sm" onClick={() => onToggleActive(u)}>{u.is_active ? 'Desactiver' : 'Activer'}</button>
+                <button className="btn btn-outline btn-sm" onClick={() => onToggleActive(u)}>{u.is_active ? 'Désactiver' : 'Activer'}</button>
                 <button className="btn btn-danger btn-sm" onClick={() => onDeleteUser(u.id)}>Supprimer</button>
               </div>
             </div>
@@ -1084,8 +1234,8 @@ function ResultsTab({ classId }) {
   }, [classId])
 
   if (load) return <div className="loading-overlay"><div className="spinner" /></div>
-  if (!data) return <div className="empty-state"><h3>Impossible de charger les resultats</h3></div>
-  if (!data.students?.length) return <div className="empty-state"><h3>Aucun etudiant</h3></div>
+  if (!data) return <div className="empty-state"><h3>Impossible de charger les résultats</h3></div>
+  if (!data.students?.length) return <div className="empty-state"><h3>Aucun étudiant</h3></div>
 
   const e = data.exams || [], h = data.homeworks || []
 
@@ -1094,7 +1244,7 @@ function ResultsTab({ classId }) {
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 500 }}>
         <thead>
           <tr style={{ background: 'var(--navy)', color: 'white' }}>
-            <th style={{ padding: '10px 14px', textAlign: 'left', position: 'sticky', left: 0, background: 'var(--navy)', whiteSpace: 'nowrap' }}>Etudiant</th>
+            <th style={{ padding: '10px 14px', textAlign: 'left', position: 'sticky', left: 0, background: 'var(--navy)', whiteSpace: 'nowrap' }}>Étudiant</th>
             <th style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>Matricule</th>
             {e.map(x => <th key={`e${x.id}`} style={{ padding: '10px 8px', whiteSpace: 'nowrap', fontSize: 11 }}>Exam : {x.title.slice(0, 16)}{x.title.length > 16 ? '...' : ''}</th>)}
             {h.map(x => <th key={`h${x.id}`} style={{ padding: '10px 8px', whiteSpace: 'nowrap', fontSize: 11 }}>Devoir : {x.title.slice(0, 16)}{x.title.length > 16 ? '...' : ''}</th>)}
