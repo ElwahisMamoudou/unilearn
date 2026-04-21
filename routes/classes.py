@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
+from models import ClassGroup, User, Course, Enrollment, get_db
 from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/classes", tags=["classes"])
