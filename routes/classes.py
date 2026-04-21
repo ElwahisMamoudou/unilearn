@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
+from models import get_db, User, ClassGroup, AcademicYear, Enrollment, Course
 from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/classes", tags=["classes"])
@@ -42,19 +43,20 @@ class EnrollStudentsIn(BaseModel):
 # ── Helper ────────────────────────────────────────
 def _enrich(cg: ClassGroup) -> dict:
     return {
-        "id":                cg.id,
-        "name":              cg.name,
-        "code":              cg.code,
-        "description":       cg.description,
-        "level":             cg.level,
-        "academic_year_id":  cg.academic_year_id,
+        "id":                 cg.id,
+        "name":               cg.name,
+        "code":               cg.code,
+        "description":        cg.description,
+        "level":              cg.level,
+        "academic_year_id":   cg.academic_year_id,
         "academic_year_name": cg.academic_year.name if cg.academic_year else "",
-        "teacher_id":        cg.teacher_id,
-        "teacher_name":      cg.teacher.name if cg.teacher else "",
-        "max_students":      cg.max_students,
-        "is_active":         cg.is_active,
-        "student_count":     len(cg.students),
-        "created_at":        cg.created_at,
+        "teacher_id":         cg.teacher_id,
+        "teacher_name":       cg.teacher.name if cg.teacher else "",
+        "max_students":       cg.max_students,
+        "is_active":          cg.is_active,
+        "student_count":      len(cg.students),
+        "course_count":       len(cg.courses),
+        "created_at":         cg.created_at,
     }
 
 
@@ -67,17 +69,15 @@ def list_classes(
     if me.role == "admin":
         classes = db.query(ClassGroup).order_by(ClassGroup.name).all()
     elif me.role == "teacher":
-        # Enseignant voit ses classes + celles où ses étudiants sont
         classes = db.query(ClassGroup).filter(
             ClassGroup.teacher_id == me.id
         ).order_by(ClassGroup.name).all()
     else:
-        # Étudiant voit ses classes
         classes = me.class_groups
     return [_enrich(c) for c in classes]
 
 
-@router.get("/{class_id}", response_model=ClassOut)
+@router.get("/{class_id}")
 def get_class(
     class_id: int,
     db: Session = Depends(get_db),
@@ -87,30 +87,24 @@ def get_class(
     if not cg:
         raise HTTPException(404, "Classe introuvable")
 
-    # Cours directement lies a cette classe via class_group_id
     class_courses = db.query(Course).filter(Course.class_group_id == class_id).all()
 
     courses = []
     for c in class_courses:
-        lesson_count  = len(c.lessons)
-        student_count = len(c.enrollments)
-        teacher_name  = c.teacher.name if c.teacher else ''
-        cat_name      = c.category.name  if c.category else ''
-        cat_color     = c.category.color if c.category else '#6366f1'
         courses.append({
-            'id':            c.id,
-            'title':         c.title,
-            'description':   c.description,
-            'is_published':  c.is_published,
-            'teacher_id':    c.teacher_id,
-            'teacher_name':  teacher_name,
-            'category_name': cat_name,
-            'category_color':cat_color,
-            'lesson_count':  lesson_count,
-            'student_count': student_count,
+            'id':             c.id,
+            'title':          c.title,
+            'description':    c.description,
+            'is_published':   c.is_published,
+            'teacher_id':     c.teacher_id,
+            'teacher_name':   c.teacher.name  if c.teacher  else '',
+            'category_name':  c.category.name  if c.category else '',
+            'category_color': c.category.color if c.category else '#6366f1',
+            'lesson_count':   len(c.lessons),
+            'student_count':  len(c.enrollments),
+            'class_group_id': c.class_group_id,
         })
 
-    # Examens lies aux cours de la classe
     exams = []
     for c in class_courses:
         for ex in c.exams:
@@ -118,13 +112,14 @@ def get_class(
                 'id':               ex.id,
                 'title':            ex.title,
                 'course_id':        ex.course_id,
+                'course_title':     c.title,
                 'is_published':     ex.is_published,
+                'duration_min':     ex.duration_min,
                 'starts_at':        ex.starts_at.isoformat() if ex.starts_at else None,
                 'ends_at':          ex.ends_at.isoformat()   if ex.ends_at   else None,
                 'submission_count': len(ex.submissions),
             })
 
-    # Devoirs lies aux cours de la classe
     homeworks = []
     for c in class_courses:
         for hw in c.homeworks:
@@ -132,6 +127,7 @@ def get_class(
                 'id':               hw.id,
                 'title':            hw.title,
                 'course_id':        hw.course_id,
+                'course_title':     c.title,
                 'is_published':     hw.is_published,
                 'due_date':         hw.due_date.isoformat() if hw.due_date else None,
                 'max_score':        hw.max_score,
@@ -158,17 +154,19 @@ def get_class(
         'total_exams':     len(exams),
         'total_homeworks': len(homeworks),
     }
-    base['academic_year_name'] = cg.academic_year.name if cg.academic_year else ''
     return base
+
+
 @router.post("", status_code=201)
 def create_class(
     body: ClassIn,
     db:   Session = Depends(get_db),
     me:   User    = Depends(require_admin),
 ):
-    # Vérifier enseignant si fourni
     if body.teacher_id:
-        teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
+        teacher = db.query(User).filter(
+            User.id == body.teacher_id, User.role == "teacher"
+        ).first()
         if not teacher:
             raise HTTPException(404, "Enseignant introuvable")
 
@@ -196,7 +194,9 @@ def update_class(
         raise HTTPException(404, "Classe introuvable")
 
     if body.teacher_id:
-        teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
+        teacher = db.query(User).filter(
+            User.id == body.teacher_id, User.role == "teacher"
+        ).first()
         if not teacher:
             raise HTTPException(404, "Enseignant introuvable")
 
@@ -251,20 +251,18 @@ def add_students(
     if len(cg.students) + len(body.student_ids) > cg.max_students:
         raise HTTPException(400, f"Capacité max atteinte ({cg.max_students} étudiants)")
 
-    added = []
-    already = []
+    added = []; already = []
     for sid in body.student_ids:
         student = db.query(User).filter(User.id == sid, User.role == "student").first()
         if not student:
             continue
         if student in cg.students:
-            already.append(sid)
-            continue
+            already.append(sid); continue
         cg.students.append(student)
         added.append(sid)
 
     db.commit()
-    return {"added": added, "already_in_class": already}
+    return {"added": len(added), "already_in_class": len(already)}
 
 
 @router.delete("/{class_id}/students/{student_id}", status_code=204)
@@ -292,7 +290,6 @@ def enroll_class_to_course(
     db:        Session = Depends(get_db),
     me:        User    = Depends(require_admin),
 ):
-    """Inscrit tous les étudiants d'une classe à un cours d'un seul coup."""
     cg = db.query(ClassGroup).filter(ClassGroup.id == class_id).first()
     if not cg:
         raise HTTPException(404, "Classe introuvable")
@@ -301,22 +298,18 @@ def enroll_class_to_course(
         raise HTTPException(404, "Cours introuvable")
 
     if not cg.students:
-        raise HTTPException(400, "Aucun etudiant dans cette classe. Ajoutez des etudiants avant d'inscrire.")
+        raise HTTPException(400, "Aucun etudiant dans cette classe.")
 
     enrolled = []; already = []
     for student in cg.students:
-        try:
-            existing = db.query(Enrollment).filter_by(
-                student_id=student.id, course_id=course_id
-            ).first()
-            if existing:
-                already.append(student.id)
-            else:
-                db.add(Enrollment(student_id=student.id, course_id=course_id))
-                enrolled.append(student.id)
-        except Exception:
-            db.rollback()
-            raise HTTPException(500, f"Erreur lors de l'inscription de l'etudiant {student.id}")
+        existing = db.query(Enrollment).filter_by(
+            student_id=student.id, course_id=course_id
+        ).first()
+        if existing:
+            already.append(student.id)
+        else:
+            db.add(Enrollment(student_id=student.id, course_id=course_id))
+            enrolled.append(student.id)
 
     db.commit()
     return {
@@ -335,12 +328,67 @@ def set_matricule(
     db:         Session = Depends(get_db),
     me:         User    = Depends(require_admin),
 ):
-    student = db.query(User).filter(User.id == student_id, User.role == "student").first()
+    student = db.query(User).filter(
+        User.id == student_id, User.role == "student"
+    ).first()
     if not student:
         raise HTTPException(404, "Étudiant introuvable")
-    existing = db.query(User).filter(User.matricule == matricule, User.id != student_id).first()
+    existing = db.query(User).filter(
+        User.matricule == matricule, User.id != student_id
+    ).first()
     if existing:
         raise HTTPException(400, f"Matricule '{matricule}' déjà utilisé")
     student.matricule = matricule
     db.commit()
     return {"ok": True, "matricule": matricule}
+
+
+# ── Résultats ─────────────────────────────────────
+@router.get("/{class_id}/results")
+def get_class_results(
+    class_id: int,
+    db:       Session = Depends(get_db),
+    me:       User    = Depends(require_admin),
+):
+    cg = db.query(ClassGroup).filter(ClassGroup.id == class_id).first()
+    if not cg:
+        raise HTTPException(404, "Classe introuvable")
+
+    class_courses = db.query(Course).filter(Course.class_group_id == class_id).all()
+    exams     = [ex for c in class_courses for ex in c.exams]
+    homeworks = [hw for c in class_courses for hw in c.homeworks]
+
+    students_results = []
+    for student in cg.students:
+        row = {
+            "student_id":   student.id,
+            "student_name": student.name,
+            "matricule":    student.matricule,
+            "exams":        {},
+            "homeworks":    {},
+        }
+        for ex in exams:
+            sub = next((s for s in ex.submissions if s.student_id == student.id), None)
+            row["exams"][ex.id] = {
+                "submitted": sub is not None,
+                "graded":    sub.graded    if sub else False,
+                "score":     sub.score     if sub else None,
+                "max":       sub.max_score if sub else None,
+            }
+        for hw in homeworks:
+            sub = next((s for s in hw.submissions if s.student_id == student.id), None)
+            row["homeworks"][hw.id] = {
+                "submitted": sub is not None,
+                "graded":    sub.graded if sub else False,
+                "score":     sub.score  if sub else None,
+                "max":       hw.max_score,
+                "late":      sub.late   if sub else False,
+            }
+        students_results.append(row)
+
+    return {
+        "class_name": cg.name,
+        "exams":      [{"id": e.id, "title": e.title} for e in exams],
+        "homeworks":  [{"id": h.id, "title": h.title} for h in homeworks],
+        "students":   students_results,
+    }
