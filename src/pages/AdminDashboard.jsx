@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
+import ThumbnailUploader from '../components/ThumbnailUploader'
 
 const LEVEL_COLORS = {
   'Licence 1': '#3b82f6', 'Licence 2': '#06b6d4', 'Licence 3': '#10b981',
@@ -38,7 +39,7 @@ export default function AdminDashboard() {
   const [classes,    setClasses]    = useState([])
   const [allUsers,   setAllUsers]   = useState([])
   const [categories, setCategories] = useState([])
-  const [years,      setYears]      = useState([])   // ✅ années académiques
+  const [years,      setYears]      = useState([])
   const [loading,    setLoading]    = useState(true)
 
   const [view,        setView]        = useState('classes')
@@ -54,24 +55,25 @@ export default function AdminDashboard() {
   const [editUser,    setEditUser]    = useState(null)
   const [editCourse,  setEditCourse]  = useState(null)
 
-  /* ✅ classForm avec academic_year_id (sélection) ET academic_year_name (création) */
   const [classForm, setClassForm] = useState({
     name: '', code: '', description: '', level: '',
-    academic_year_id: '',   // ID de l'année existante choisie
-    teacher_id: '', max_students: 50, is_active: true,
+    academic_year_id: '', teacher_id: '', max_students: 50, is_active: true,
   })
 
-  /* ✅ State pour créer une nouvelle année depuis le modal */
-  const [showNewYear,  setShowNewYear]  = useState(false)
-  const [newYearForm,  setNewYearForm]  = useState({
+  const [showNewYear, setShowNewYear] = useState(false)
+  const [newYearForm, setNewYearForm] = useState({
     name: '', start_date: '', end_date: '', is_current: false,
   })
-  const [savingYear,   setSavingYear]   = useState(false)
+  const [savingYear, setSavingYear] = useState(false)
 
   const [userForm,   setUserForm]   = useState({ name: '', email: '', password: '', role: 'student' })
+
+  /* ✅ courseForm avec thumbnail */
   const [courseForm, setCourseForm] = useState({
     title: '', description: '', category_id: '', teacher_id: '', is_published: true,
   })
+  /* ✅ ID du cours nouvellement créé — pour uploader la thumbnail */
+  const [savedCourseId, setSavedCourseId] = useState(null)
 
   const [enrolled,       setEnrolled]       = useState([])
   const [enrollCourseId, setEnrollCourseId] = useState(null)
@@ -130,7 +132,6 @@ export default function AdminDashboard() {
   /* ── Classes CRUD ── */
   const openCreateClass = () => {
     setEditClass(null)
-    // Pré-sélectionner l'année courante si elle existe
     const currentYear = years.find(y => y.is_current)
     setClassForm({
       name: '', code: '', description: '', level: '',
@@ -160,12 +161,10 @@ export default function AdminDashboard() {
     setClassModal(true)
   }
 
-  /* ✅ Créer une nouvelle année académique depuis le modal classe */
   const createYearInline = async () => {
-    if (!newYearForm.name.trim()) return flash('Le nom de l\'année est requis', 'error')
+    if (!newYearForm.name.trim()) return flash("Le nom de l'année est requis", 'error')
     if (!newYearForm.start_date)  return flash('La date de début est requise', 'error')
     if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
-
     setSavingYear(true)
     try {
       const { data } = await api.post('/academic/years', {
@@ -175,10 +174,7 @@ export default function AdminDashboard() {
         is_current: newYearForm.is_current,
         semesters:  [],
       })
-      // Mettre à jour la liste des années et sélectionner la nouvelle
-      const newYears = [...years, data].sort((a, b) =>
-        new Date(b.start_date) - new Date(a.start_date)
-      )
+      const newYears = [...years, data].sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
       setYears(newYears)
       setClassForm(f => ({ ...f, academic_year_id: String(data.id) }))
       setShowNewYear(false)
@@ -276,6 +272,7 @@ export default function AdminDashboard() {
   /* ── Cours CRUD ── */
   const openCreateCourse = () => {
     setEditCourse(null)
+    setSavedCourseId(null)
     setCourseForm({
       title: '', description: '', category_id: '',
       teacher_id: classDetail?.teacher_id ? String(classDetail.teacher_id) : '',
@@ -286,6 +283,7 @@ export default function AdminDashboard() {
 
   const openEditCourse = c => {
     setEditCourse(c)
+    setSavedCourseId(c.id)  // ✅ Le cours existe déjà → on peut uploader la thumbnail
     setCourseForm({
       title:        c.title,
       description:  c.description  || '',
@@ -298,6 +296,9 @@ export default function AdminDashboard() {
 
   const saveCourse = async e => {
     e.preventDefault()
+    if (!courseForm.title.trim()) return flash('Le titre est requis', 'error')
+    if (!courseForm.teacher_id)   return flash('Sélectionnez un enseignant', 'error')
+
     const payload = {
       title:        courseForm.title,
       description:  courseForm.description || null,
@@ -309,14 +310,25 @@ export default function AdminDashboard() {
     try {
       if (editCourse) {
         await api.put(`/admin/courses/${editCourse.id}`, payload)
-        flash('Cours modifié')
+        flash('Cours modifié !')
+        setCourseModal(false)
+        openClass(selClass)
       } else {
-        await api.post('/admin/courses', payload)
-        flash('Cours créé')
+        // ✅ Créer le cours d'abord, puis permettre l'upload de thumbnail
+        const { data: newCourse } = await api.post('/admin/courses', payload)
+        setSavedCourseId(newCourse.id)
+        setEditCourse(newCourse)  // ✅ Maintenant on a l'ID pour la thumbnail
+        flash('Cours créé ! Vous pouvez maintenant ajouter une image.', 'success')
+        // Ne pas fermer le modal — laisser l'utilisateur uploader la thumbnail
       }
-      setCourseModal(false)
-      openClass(selClass)
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
+  }
+
+  const closeCourseModal = () => {
+    setCourseModal(false)
+    setSavedCourseId(null)
+    setEditCourse(null)
+    openClass(selClass)
   }
 
   const deleteCourse = async id => {
@@ -526,16 +538,12 @@ export default function AdminDashboard() {
               <button className="modal-close" onClick={() => setClassModal(false)}>x</button>
             </div>
             <div className="modal-body">
-
-              {/* Nom */}
               <div className="form-group">
                 <label className="form-label">Nom *</label>
                 <input className="form-input" value={classForm.name}
                   onChange={e => setClassForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Ex : L1 Informatique" />
               </div>
-
-              {/* Code + Niveau */}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Code</label>
@@ -554,8 +562,6 @@ export default function AdminDashboard() {
                   </select>
                 </div>
               </div>
-
-              {/* Description */}
               <div className="form-group">
                 <label className="form-label">Description</label>
                 <textarea className="form-input" rows={2} value={classForm.description}
@@ -563,111 +569,64 @@ export default function AdminDashboard() {
                   style={{ resize: 'vertical' }} />
               </div>
 
-              {/* ✅ ANNÉE ACADÉMIQUE — sélection ou création */}
+              {/* ANNÉE ACADÉMIQUE */}
               <div className="form-group">
                 <label className="form-label">Année académique</label>
-
-                {/* Sélecteur d'années existantes */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <select
-                    className="form-select"
-                    style={{ flex: 1 }}
+                  <select className="form-select" style={{ flex: 1 }}
                     value={classForm.academic_year_id}
-                    onChange={e => setClassForm(f => ({ ...f, academic_year_id: e.target.value }))}
-                  >
+                    onChange={e => setClassForm(f => ({ ...f, academic_year_id: e.target.value }))}>
                     <option value="">-- Choisir une année --</option>
                     {years.map(y => (
-                      <option key={y.id} value={y.id}>
-                        {y.name}{y.is_current ? ' ✓ (courante)' : ''}
-                      </option>
+                      <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' ✓ (courante)' : ''}</option>
                     ))}
                   </select>
-                  {/* Bouton pour créer une nouvelle année */}
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
+                  <button type="button" className="btn btn-outline btn-sm"
                     style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                    onClick={() => setShowNewYear(v => !v)}
-                  >
+                    onClick={() => setShowNewYear(v => !v)}>
                     {showNewYear ? '✕ Annuler' : '+ Nouvelle année'}
                   </button>
                 </div>
-
-                {/* Afficher l'année sélectionnée */}
                 {classForm.academic_year_id && !showNewYear && (
                   <div style={{ marginTop: 6, fontSize: 12, color: 'var(--success)', fontWeight: 600 }}>
                     ✓ {years.find(y => String(y.id) === classForm.academic_year_id)?.name}
                   </div>
                 )}
-
-                {/* ✅ Formulaire inline de création d'année */}
                 {showNewYear && (
-                  <div style={{
-                    marginTop: 12, padding: 16, background: '#f0f9ff',
-                    borderRadius: 10, border: '1px solid #bae6fd',
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>
-                      📅 Créer une nouvelle année académique
-                    </div>
-
-                    {/* Nom de l'année */}
+                  <div style={{ marginTop: 12, padding: 16, background: '#f0f9ff', borderRadius: 10, border: '1px solid #bae6fd' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>📅 Créer une nouvelle année académique</div>
                     <div className="form-group">
                       <label className="form-label">Nom *</label>
-                      <input
-                        className="form-input"
-                        value={newYearForm.name}
+                      <input className="form-input" value={newYearForm.name}
                         onChange={e => setNewYearForm(f => ({ ...f, name: e.target.value }))}
-                        placeholder="Ex : 2025-2026"
-                      />
+                        placeholder="Ex : 2025-2026" />
                     </div>
-
-                    {/* Dates */}
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">Date de début *</label>
-                        <input
-                          className="form-input"
-                          type="date"
-                          value={newYearForm.start_date}
-                          onChange={e => setNewYearForm(f => ({ ...f, start_date: e.target.value }))}
-                        />
+                        <input className="form-input" type="date" value={newYearForm.start_date}
+                          onChange={e => setNewYearForm(f => ({ ...f, start_date: e.target.value }))} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Date de fin *</label>
-                        <input
-                          className="form-input"
-                          type="date"
-                          value={newYearForm.end_date}
-                          onChange={e => setNewYearForm(f => ({ ...f, end_date: e.target.value }))}
-                        />
+                        <input className="form-input" type="date" value={newYearForm.end_date}
+                          onChange={e => setNewYearForm(f => ({ ...f, end_date: e.target.value }))} />
                       </div>
                     </div>
-
-                    {/* Marquer comme courante */}
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, marginBottom: 12 }}>
-                      <input
-                        type="checkbox"
-                        checked={newYearForm.is_current}
+                      <input type="checkbox" checked={newYearForm.is_current}
                         onChange={e => setNewYearForm(f => ({ ...f, is_current: e.target.checked }))}
-                        style={{ width: 15, height: 15 }}
-                      />
+                        style={{ width: 15, height: 15 }} />
                       Marquer comme année courante
                     </label>
-
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={createYearInline}
-                      disabled={savingYear}
-                      style={{ width: '100%' }}
-                    >
+                    <button type="button" className="btn btn-primary btn-sm"
+                      onClick={createYearInline} disabled={savingYear} style={{ width: '100%' }}>
                       {savingYear ? 'Création...' : '✓ Créer et sélectionner cette année'}
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* Enseignant responsable */}
               <div className="form-group">
                 <label className="form-label">Enseignant responsable</label>
                 <select className="form-select" value={classForm.teacher_id}
@@ -676,8 +635,6 @@ export default function AdminDashboard() {
                   {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
-
-              {/* Capacité + Active */}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Capacité max</label>
@@ -693,7 +650,6 @@ export default function AdminDashboard() {
                   </label>
                 </div>
               </div>
-
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setClassModal(false)}>Annuler</button>
@@ -754,17 +710,29 @@ export default function AdminDashboard() {
       {/* ════════════ MODAL COURS ════════════ */}
       {courseModal && (
         <div className="modal-overlay" onClick={() => setCourseModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 560, width: '95vw', maxHeight: '92vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{editCourse ? 'Modifier le cours' : 'Nouveau cours'}</span>
-              <button className="modal-close" onClick={() => setCourseModal(false)}>x</button>
+              <button className="modal-close" onClick={closeCourseModal}>x</button>
             </div>
             <form onSubmit={saveCourse}>
               <div className="modal-body">
+
+                {/* ✅ Thumbnail en haut du modal */}
+                <div className="form-group">
+                  <ThumbnailUploader
+                    courseId={savedCourseId}
+                    current={editCourse?.thumbnail}
+                    onUploaded={url => setEditCourse(c => c ? ({ ...c, thumbnail: url }) : c)}
+                  />
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Titre *</label>
                   <input className="form-input" required value={courseForm.title}
-                    onChange={e => setCourseForm({ ...courseForm, title: e.target.value })} />
+                    onChange={e => setCourseForm({ ...courseForm, title: e.target.value })}
+                    placeholder="Ex : Introduction aux réseaux" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Description</label>
@@ -798,10 +766,33 @@ export default function AdminDashboard() {
                     <option value="false">Brouillon</option>
                   </select>
                 </div>
+
+                {/* ✅ Message si cours vient d'être créé */}
+                {savedCourseId && !editCourse?.id && (
+                  <div style={{
+                    padding: '10px 14px', borderRadius: 10,
+                    background: '#f0fdf4', border: '1px solid #bbf7d0',
+                    color: '#16a34a', fontSize: 13, fontWeight: 600,
+                  }}>
+                    ✓ Cours créé ! Vous pouvez uploader une image puis fermer.
+                  </div>
+                )}
+
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setCourseModal(false)}>Annuler</button>
-                <button type="submit" className="btn btn-primary">Enregistrer</button>
+                <button type="button" className="btn btn-outline" onClick={closeCourseModal}>
+                  {savedCourseId ? 'Fermer' : 'Annuler'}
+                </button>
+                {!savedCourseId && (
+                  <button type="submit" className="btn btn-primary">
+                    {editCourse ? 'Enregistrer' : 'Créer le cours'}
+                  </button>
+                )}
+                {savedCourseId && editCourse && (
+                  <button type="submit" className="btn btn-primary">
+                    Enregistrer les modifications
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -1006,6 +997,18 @@ function ClassDetailView({
                   {(classDetail.courses ?? []).map(course => (
                     <div key={course.id} className="card">
                       <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                        {/* ✅ Miniature thumbnail si disponible */}
+                        {course.thumbnail ? (
+                          <img src={course.thumbnail} alt={course.title}
+                            style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+                        ) : (
+                          <div style={{
+                            width: 48, height: 48, borderRadius: 8, flexShrink: 0,
+                            background: 'linear-gradient(135deg, #1e3a5f, #0ea5e9)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 20,
+                          }}>📚</div>
+                        )}
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{course.title}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
