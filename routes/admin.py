@@ -1,5 +1,5 @@
-import random
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+import os, uuid, random
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -67,6 +67,7 @@ class CourseOut(BaseModel):
     is_published: bool; teacher_id: int
     teacher_name: str = ""; category_name: str = ""
     lesson_count: int = 0; student_count: int = 0
+    thumbnail:    Optional[str] = None
     class Config: from_attributes = True
 
 class EnrollIn(BaseModel):
@@ -223,6 +224,7 @@ def list_all_courses(db: Session = Depends(get_db), me: User = Depends(require_a
         category_name = c.category.name if c.category else "",
         lesson_count  = len(c.lessons),
         student_count = len(c.enrollments),
+        thumbnail     = c.thumbnail,
     ) for c in db.query(Course).all()]
 
 
@@ -247,6 +249,7 @@ def admin_create_course(
         teacher_name  = teacher.name,
         category_name = course.category.name if course.category else "",
         lesson_count=0, student_count=0,
+        thumbnail=None,
     )
 
 
@@ -261,9 +264,11 @@ def admin_update_course(
     if not course: raise HTTPException(404, "Cours introuvable")
     teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
     if not teacher: raise HTTPException(404, "Enseignant introuvable")
-    course.title=body.title; course.description=body.description
-    course.category_id=body.category_id; course.teacher_id=body.teacher_id
-    course.is_published=body.is_published
+    course.title        = body.title
+    course.description  = body.description
+    course.category_id  = body.category_id
+    course.teacher_id   = body.teacher_id
+    course.is_published = body.is_published
     db.commit(); db.refresh(course)
     return CourseOut(
         id=course.id, title=course.title, description=course.description,
@@ -272,6 +277,7 @@ def admin_update_course(
         category_name = course.category.name if course.category else "",
         lesson_count  = len(course.lessons),
         student_count = len(course.enrollments),
+        thumbnail     = course.thumbnail,
     )
 
 
@@ -323,3 +329,67 @@ def admin_unenroll(
     e = db.query(Enrollment).filter_by(course_id=course_id, student_id=student_id).first()
     if not e: raise HTTPException(404, "Inscription introuvable")
     db.delete(e); db.commit()
+
+
+# ── Thumbnail cours ───────────────────────────────
+
+THUMB_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "thumbnails")
+
+@router.post("/courses/{course_id}/thumbnail")
+async def upload_course_thumbnail(
+    course_id: int,
+    file:      UploadFile = File(...),
+    db:        Session    = Depends(get_db),
+    me:        User       = Depends(require_admin),
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+
+    allowed = ["image/jpeg", "image/png", "image/webp"]
+    if file.content_type not in allowed:
+        raise HTTPException(400, "Format non supporté. Utilisez JPG, PNG ou WebP")
+
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Image trop lourde (max 5 Mo)")
+
+    os.makedirs(THUMB_DIR, exist_ok=True)
+
+    # Supprimer l'ancienne thumbnail
+    if course.thumbnail:
+        old_name = os.path.basename(course.thumbnail)
+        old_path = os.path.join(THUMB_DIR, old_name)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    ext      = os.path.splitext(file.filename or "image.jpg")[1].lower() or ".jpg"
+    filename = f"thumb_{course_id}_{uuid.uuid4().hex[:8]}{ext}"
+    dest     = os.path.join(THUMB_DIR, filename)
+
+    with open(dest, "wb") as f:
+        f.write(contents)
+
+    course.thumbnail = f"/uploads/thumbnails/{filename}"
+    db.commit()
+
+    return {"thumbnail": course.thumbnail, "ok": True}
+
+
+@router.delete("/courses/{course_id}/thumbnail", status_code=204)
+def delete_course_thumbnail(
+    course_id: int,
+    db:        Session = Depends(get_db),
+    me:        User    = Depends(require_admin),
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+
+    if course.thumbnail:
+        old_name = os.path.basename(course.thumbnail)
+        old_path = os.path.join(THUMB_DIR, old_name)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+        course.thumbnail = None
+        db.commit()
