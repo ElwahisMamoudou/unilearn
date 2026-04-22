@@ -1,17 +1,51 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
-import CourseCard from '../components/CourseCard'
 import useAuthStore from '../store/authStore'
 
+/* ── Palette couleurs par catégorie ── */
+const CAT_GRADIENTS = [
+  ['#1e3a5f', '#0ea5e9'],
+  ['#1a2e1a', '#22c55e'],
+  ['#2e1a1a', '#ef4444'],
+  ['#2e2a1a', '#f59e0b'],
+  ['#1a1a2e', '#8b5cf6'],
+  ['#1a2e2e', '#14b8a6'],
+  ['#2e1a2e', '#ec4899'],
+]
+
+const catGradient = (name = '', id = 0) => {
+  const idx = id % CAT_GRADIENTS.length
+  return CAT_GRADIENTS[idx]
+}
+
+/* ── Icônes catégories ── */
+const CAT_ICONS = {
+  'mathématiques': '📐', 'maths': '📐', 'math': '📐',
+  'informatique': '💻', 'info': '💻', 'programmation': '💻',
+  'physique': '⚛️', 'chimie': '🧪', 'biologie': '🧬',
+  'histoire': '📜', 'géographie': '🌍', 'littérature': '📖',
+  'anglais': '🇬🇧', 'langue': '💬', 'technique': '⚙️',
+  'maintenance': '🔧', 'electronique': '⚡', 'automatique': '🤖',
+}
+const getCatIcon = (name = '') => {
+  const lower = name.toLowerCase()
+  for (const [key, icon] of Object.entries(CAT_ICONS)) {
+    if (lower.includes(key)) return icon
+  }
+  return '📚'
+}
+
 export default function CoursesPage({ myOnly }) {
-  const navigate = useNavigate()
-  const { user } = useAuthStore()
-  const [courses, setCourses]     = useState([])
-  const [search, setSearch]       = useState('')
-  const [loading, setLoading]     = useState(true)
-  const [enrolling, setEnrolling] = useState(null)
-  const [msg, setMsg]             = useState({ text: '', type: '' })
+  const navigate      = useNavigate()
+  const { user }      = useAuthStore()
+  const [courses,    setCourses]    = useState([])
+  const [search,     setSearch]     = useState('')
+  const [loading,    setLoading]    = useState(true)
+  const [enrolling,  setEnrolling]  = useState(null)
+  const [msg,        setMsg]        = useState({ text: '', type: '' })
+  const [filterCat,  setFilterCat]  = useState('')
+  const [viewMode,   setViewMode]   = useState('grid') // grid | list
 
   const isStudent = user?.role === 'student'
   const isTeacher = user?.role === 'teacher'
@@ -26,6 +60,7 @@ export default function CoursesPage({ myOnly }) {
     setLoading(true)
     api.get(myOnly ? '/courses/my' : '/courses')
       .then(r => { setCourses(r.data); setLoading(false) })
+      .catch(() => setLoading(false))
   }
   useEffect(load, [myOnly])
 
@@ -34,101 +69,464 @@ export default function CoursesPage({ myOnly }) {
     setEnrolling(courseId)
     try {
       await api.post(`/courses/${courseId}/enroll`)
-      flash('Inscription reussie')
+      flash('Inscription réussie !')
       load()
     } catch (err) {
       flash(err.response?.data?.detail || 'Erreur', 'error')
     } finally { setEnrolling(null) }
   }
 
-  const filtered = courses.filter(c =>
-    c.title.toLowerCase().includes(search.toLowerCase()) ||
-    c.teacher_name?.toLowerCase().includes(search.toLowerCase())
-  )
+  // Catégories uniques pour le filtre
+  const categories = [...new Set(courses.map(c => c.category?.name).filter(Boolean))]
+
+  const filtered = courses.filter(c => {
+    const matchSearch = c.title.toLowerCase().includes(search.toLowerCase()) ||
+      c.teacher_name?.toLowerCase().includes(search.toLowerCase())
+    const matchCat = !filterCat || c.category?.name === filterCat
+    return matchSearch && matchCat
+  })
 
   return (
-    <>
-      <div className="section-header">
-        <span className="section-title">
-          {myOnly
-            ? isTeacher ? 'Mes cours crees' : 'Mes cours inscrits'
-            : 'Catalogue des cours'}
-        </span>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{filtered.length} cours</span>
-          {isTeacher && (
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/teacher')}>
-              Creer un cours
-            </button>
-          )}
+    <div style={{ fontFamily: "'Sora', 'DM Sans', sans-serif" }}>
+
+      {/* ── Import fonts ── */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+        .course-card-new {
+          background: white;
+          border-radius: 18px;
+          overflow: hidden;
+          border: 1px solid #e8ecf4;
+          cursor: pointer;
+          transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease;
+          position: relative;
+        }
+        .course-card-new:hover {
+          transform: translateY(-6px) scale(1.01);
+          box-shadow: 0 20px 50px rgba(14,26,60,.13);
+        }
+        .course-card-new:hover .course-card-arrow {
+          transform: translateX(4px);
+          opacity: 1;
+        }
+        .course-card-arrow {
+          transition: transform .2s ease, opacity .2s ease;
+          opacity: .5;
+        }
+        .filter-pill {
+          padding: 6px 16px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          border: 1.5px solid;
+          transition: all .15s ease;
+          white-space: nowrap;
+        }
+        .progress-bar-fill {
+          height: 100%;
+          border-radius: 4px;
+          transition: width .6s cubic-bezier(.34,1.56,.64,1);
+        }
+        .view-btn {
+          width: 36px; height: 36px;
+          border-radius: 10px;
+          border: 1.5px solid #e2e8f0;
+          background: white;
+          cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 16px;
+          transition: all .15s;
+        }
+        .view-btn.active {
+          background: var(--navy, #1e3a6e);
+          border-color: var(--navy, #1e3a6e);
+          color: white;
+        }
+        .enroll-btn {
+          font-size: 12px; font-weight: 700;
+          padding: 7px 16px; border-radius: 10px;
+          border: none; cursor: pointer;
+          transition: all .15s ease;
+          letter-spacing: .2px;
+        }
+        .enroll-btn:hover { transform: scale(1.04); }
+      `}</style>
+
+      {/* ── En-tête hero ── */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 50%, #0f2d4a 100%)',
+        borderRadius: 20, padding: '32px 36px', marginBottom: 32, color: '#fff',
+        position: 'relative', overflow: 'hidden',
+      }}>
+        {/* Motif décoratif */}
+        <div style={{ position: 'absolute', right: -20, top: -20, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,.03)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', right: 60, bottom: -40, width: 140, height: 140, borderRadius: '50%', background: 'rgba(59,130,246,.08)', pointerEvents: 'none' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, position: 'relative' }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 8 }}>
+              UniLearn · Université de Ngaoundéré
+            </div>
+            <h1 style={{ fontFamily: "'Sora', serif", fontSize: 26, fontWeight: 800, margin: '0 0 8px', letterSpacing: -.3 }}>
+              {myOnly
+                ? isTeacher ? '📖 Mes cours' : '🎓 Mon parcours'
+                : '🌟 Catalogue des cours'}
+            </h1>
+            <p style={{ opacity: .6, fontSize: 13, margin: 0 }}>
+              {filtered.length} cours disponible{filtered.length !== 1 ? 's' : ''}
+              {filterCat && ` · ${filterCat}`}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {isTeacher && (
+              <button onClick={() => navigate('/teacher')} style={{
+                background: '#3b82f6', border: 'none', borderRadius: 12,
+                padding: '10px 20px', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13,
+              }}>+ Créer un cours</button>
+            )}
+          </div>
         </div>
-      </div>
 
-      {msg.text && (
-        <div className={`alert alert-${msg.type === 'error' ? 'error' : 'success'}`}>{msg.text}</div>
-      )}
-
-      <div className="search-bar" style={{ marginBottom: 24 }}>
-        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Recherche</span>
-        <input
-          placeholder="Rechercher un cours ou un enseignant..."
-          value={search} onChange={e => setSearch(e.target.value)} />
-        {search && (
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-            onClick={() => setSearch('')}>Effacer</button>
-        )}
-      </div>
-
-      {loading ? (
-        <div className="loading-overlay"><div className="spinner" /></div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state">
-          <h3>{search ? 'Aucun cours trouve' : 'Aucun cours disponible'}</h3>
-          <p>{search ? 'Essayez un autre terme' : isTeacher ? 'Creez votre premier cours' : 'Revenez plus tard.'}</p>
-          {isTeacher && !search && (
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => navigate('/teacher')}>
-              Creer un cours
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="course-grid">
-          {filtered.map(c => (
-            <div key={c.id} style={{ position: 'relative' }}>
-              <CourseCard course={c} onClick={() => navigate(`/courses/${c.id}`)} />
-
-              {isStudent && !c.enrolled && !myOnly && (
-                <button className="btn btn-primary btn-sm"
-                  style={{ position: 'absolute', bottom: 16, right: 16 }}
-                  onClick={e => enroll(e, c.id)} disabled={enrolling === c.id}>
-                  {enrolling === c.id ? 'Inscription...' : "S'inscrire"}
-                </button>
-              )}
-              {isStudent && c.enrolled && (
-                <span style={{
-                  position: 'absolute', bottom: 16, right: 16,
-                  background: '#d1fae5', color: 'var(--success)',
-                  fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-                }}>Inscrit</span>
-              )}
-              {isTeacher && (
-                <span style={{
-                  position: 'absolute', bottom: 16, right: 16,
-                  background: '#dbeafe', color: 'var(--blue)',
-                  fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-                }}>Mon cours</span>
-              )}
-              {isAdmin && (
-                <span style={{
-                  position: 'absolute', bottom: 16, right: 16,
-                  background: '#ede9fe', color: '#7c3aed',
-                  fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20,
-                }}>Admin</span>
-              )}
+        {/* Stats inline */}
+        <div style={{ display: 'flex', gap: 24, marginTop: 20, flexWrap: 'wrap' }}>
+          {[
+            { v: courses.length,                                         l: 'Cours total' },
+            { v: courses.filter(c => c.enrolled).length,                 l: 'Inscrits' },
+            { v: courses.filter(c => (c.progress_pct || 0) === 100).length, l: 'Terminés' },
+            { v: categories.length,                                      l: 'Catégories' },
+          ].map((s, i) => (
+            <div key={i}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#fff' }}>{s.v}</div>
+              <div style={{ fontSize: 11, opacity: .5, marginTop: 1 }}>{s.l}</div>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Message flash ── */}
+      {msg.text && (
+        <div style={{
+          padding: '12px 18px', borderRadius: 12, marginBottom: 20,
+          background: msg.type === 'error' ? '#fef2f2' : '#f0fdf4',
+          border: `1px solid ${msg.type === 'error' ? '#fecaca' : '#bbf7d0'}`,
+          color: msg.type === 'error' ? '#dc2626' : '#16a34a',
+          fontWeight: 600, fontSize: 14,
+        }}>{msg.text}</div>
       )}
-    </>
+
+      {/* ── Barre de recherche + filtres ── */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 24, alignItems: 'center' }}>
+        {/* Recherche */}
+        <div style={{ flex: '1 1 260px', position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>🔍</span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher un cours, enseignant..."
+            style={{
+              width: '100%', padding: '11px 14px 11px 42px',
+              borderRadius: 12, border: '1.5px solid #e2e8f0',
+              fontSize: 13, outline: 'none', background: 'white',
+              boxSizing: 'border-box',
+              fontFamily: "'Sora', sans-serif",
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8' }}>×</button>
+          )}
+        </div>
+
+        {/* Filtres catégories */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flex: '0 1 auto' }}>
+          <button
+            className="filter-pill"
+            onClick={() => setFilterCat('')}
+            style={{
+              background: !filterCat ? 'var(--navy, #1e3a6e)' : 'white',
+              color: !filterCat ? 'white' : '#64748b',
+              borderColor: !filterCat ? 'var(--navy, #1e3a6e)' : '#e2e8f0',
+            }}
+          >Tous</button>
+          {categories.map(cat => (
+            <button key={cat}
+              className="filter-pill"
+              onClick={() => setFilterCat(cat === filterCat ? '' : cat)}
+              style={{
+                background: filterCat === cat ? '#3b82f6' : 'white',
+                color: filterCat === cat ? 'white' : '#64748b',
+                borderColor: filterCat === cat ? '#3b82f6' : '#e2e8f0',
+              }}
+            >{getCatIcon(cat)} {cat}</button>
+          ))}
+        </div>
+
+        {/* Mode vue */}
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`} onClick={() => setViewMode('grid')}>⊞</button>
+          <button className={`view-btn ${viewMode === 'list' ? 'active' : ''}`} onClick={() => setViewMode('list')}>☰</button>
+        </div>
+      </div>
+
+      {/* ── Contenu ── */}
+      {loading ? (
+        <div className="loading-overlay"><div className="spinner" /></div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔎</div>
+          <h3 style={{ color: '#1e3a6e', fontFamily: "'Sora', sans-serif", marginBottom: 8 }}>
+            {search ? 'Aucun cours trouvé' : 'Aucun cours disponible'}
+          </h3>
+          <p style={{ color: '#94a3b8', fontSize: 14 }}>
+            {search ? 'Essayez un autre terme de recherche.' : 'Revenez plus tard.'}
+          </p>
+        </div>
+      ) : viewMode === 'grid' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+          {filtered.map((c, idx) => (
+            <CourseCardNew
+              key={c.id}
+              course={c}
+              idx={idx}
+              isStudent={isStudent}
+              isTeacher={isTeacher}
+              isAdmin={isAdmin}
+              myOnly={myOnly}
+              enrolling={enrolling}
+              onEnroll={enroll}
+              onClick={() => navigate(`/courses/${c.id}`)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((c, idx) => (
+            <CourseListRow
+              key={c.id}
+              course={c}
+              idx={idx}
+              isStudent={isStudent}
+              isTeacher={isTeacher}
+              isAdmin={isAdmin}
+              myOnly={myOnly}
+              enrolling={enrolling}
+              onEnroll={enroll}
+              onClick={() => navigate(`/courses/${c.id}`)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════
+   CARTE COURS — VUE GRILLE
+════════════════════════════════════════════════ */
+function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, enrolling, onEnroll, onClick }) {
+  const [gradient] = useState(() => catGradient(c.category?.name, c.category_id || idx))
+  const icon = getCatIcon(c.category?.name || '')
+  const pct  = Math.round(c.progress_pct || 0)
+
+  return (
+    <div className="course-card-new" onClick={onClick} style={{ animationDelay: `${idx * 40}ms` }}>
+
+      {/* ── Thumbnail / Banner ── */}
+      <div style={{
+        height: 160, position: 'relative', overflow: 'hidden',
+        background: c.thumbnail
+          ? `url(${c.thumbnail}) center/cover no-repeat`
+          : `linear-gradient(135deg, ${gradient[0]} 0%, ${gradient[1]} 100%)`,
+      }}>
+        {/* Overlay dégradé */}
+        {!c.thumbnail && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            backgroundImage: `radial-gradient(circle at 30% 50%, rgba(255,255,255,.07) 0%, transparent 60%)`,
+          }} />
+        )}
+        {c.thumbnail && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.25)' }} />
+        )}
+
+        {/* Icône catégorie */}
+        <div style={{
+          position: 'absolute', top: 14, left: 14,
+          width: 42, height: 42, borderRadius: 12,
+          background: 'rgba(255,255,255,.18)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 20, border: '1px solid rgba(255,255,255,.25)',
+        }}>{icon}</div>
+
+        {/* Badge catégorie */}
+        {c.category?.name && (
+          <div style={{
+            position: 'absolute', top: 14, right: 14,
+            background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(8px)',
+            color: '#fff', fontSize: 10, fontWeight: 700,
+            padding: '3px 10px', borderRadius: 20,
+            border: '1px solid rgba(255,255,255,.15)',
+            letterSpacing: .5, textTransform: 'uppercase',
+          }}>{c.category.name}</div>
+        )}
+
+        {/* Badge statut étudiant */}
+        {isStudent && c.enrolled && (
+          <div style={{
+            position: 'absolute', bottom: 14, right: 14,
+            background: '#22c55e', color: '#fff',
+            fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
+            letterSpacing: .5,
+          }}>✓ INSCRIT</div>
+        )}
+
+        {/* Badge publié/brouillon (enseignant/admin) */}
+        {(isTeacher || isAdmin) && (
+          <div style={{
+            position: 'absolute', bottom: 14, right: 14,
+            background: c.is_published ? 'rgba(34,197,94,.85)' : 'rgba(245,158,11,.85)',
+            color: '#fff', fontSize: 10, fontWeight: 800,
+            padding: '3px 10px', borderRadius: 20, letterSpacing: .5,
+          }}>{c.is_published ? 'PUBLIÉ' : 'BROUILLON'}</div>
+        )}
+
+        {/* Barre de progression étudiants */}
+        {isStudent && c.enrolled && pct > 0 && (
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'rgba(255,255,255,.2)' }}>
+            <div className="progress-bar-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#22c55e' : '#3b82f6' }} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Contenu texte ── */}
+      <div style={{ padding: '18px 18px 16px' }}>
+        <h3 style={{
+          fontFamily: "'Sora', sans-serif", fontSize: 14, fontWeight: 700,
+          color: '#0f1f3d', margin: '0 0 6px', lineHeight: 1.4,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+        }}>{c.title}</h3>
+
+        {c.description && (
+          <p style={{
+            fontSize: 12, color: '#64748b', margin: '0 0 12px', lineHeight: 1.5,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>{c.description}</p>
+        )}
+
+        {/* Méta */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+            👨‍🏫 {c.teacher_name || 'Non assigné'}
+          </span>
+          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+            📖 {c.lesson_count || 0} leçon{(c.lesson_count || 0) > 1 ? 's' : ''}
+          </span>
+          {c.student_count > 0 && (
+            <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+              👥 {c.student_count}
+            </span>
+          )}
+        </div>
+
+        {/* Progression ou action */}
+        {isStudent && c.enrolled ? (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Progression</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? '#22c55e' : '#3b82f6' }}>{pct}%</span>
+            </div>
+            <div style={{ height: 6, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+              <div className="progress-bar-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#22c55e' : `linear-gradient(90deg, #3b82f6, #6366f1)` }} />
+            </div>
+            {pct === 100 && (
+              <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, marginTop: 6, textAlign: 'center' }}>🎉 Cours terminé !</div>
+            )}
+          </div>
+        ) : isStudent && !c.enrolled ? (
+          <button
+            className="enroll-btn"
+            style={{ width: '100%', background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: '#fff' }}
+            onClick={e => onEnroll(e, c.id)}
+            disabled={enrolling === c.id}
+          >
+            {enrolling === c.id ? '⏳ Inscription...' : "S'inscrire →"}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+              {isAdmin ? '⚙️ Admin' : isTeacher ? '✏️ Mon cours' : ''}
+            </span>
+            <span className="course-card-arrow" style={{ fontSize: 14, color: '#3b82f6', fontWeight: 700 }}>
+              Voir →
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ════════════════════════════════════════════════
+   COURS — VUE LISTE
+════════════════════════════════════════════════ */
+function CourseListRow({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, enrolling, onEnroll, onClick }) {
+  const [gradient] = useState(() => catGradient(c.category?.name, c.category_id || idx))
+  const icon = getCatIcon(c.category?.name || '')
+  const pct  = Math.round(c.progress_pct || 0)
+
+  return (
+    <div onClick={onClick} style={{
+      background: 'white', borderRadius: 14, border: '1px solid #e8ecf4',
+      padding: '14px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16,
+      transition: 'box-shadow .15s, transform .15s',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(14,26,60,.1)'; e.currentTarget.style.transform = 'translateX(3px)' }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
+    >
+      {/* Thumbnail mini */}
+      <div style={{
+        width: 56, height: 56, borderRadius: 12, flexShrink: 0,
+        background: c.thumbnail
+          ? `url(${c.thumbnail}) center/cover no-repeat`
+          : `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 22,
+      }}>
+        {!c.thumbnail && icon}
+      </div>
+
+      {/* Infos */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 14, color: '#0f1f3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {c.title}
+        </div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+          {c.teacher_name} · {c.lesson_count || 0} leçon(s)
+          {c.category?.name && ` · ${c.category.name}`}
+        </div>
+        {isStudent && c.enrolled && pct > 0 && (
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#22c55e' : '#3b82f6', borderRadius: 4 }} />
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: pct === 100 ? '#22c55e' : '#3b82f6' }}>{pct}%</span>
+          </div>
+        )}
+      </div>
+
+      {/* Badge */}
+      <div style={{ flexShrink: 0 }}>
+        {isStudent && c.enrolled
+          ? <span style={{ fontSize: 11, background: '#d1fae5', color: '#16a34a', padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>Inscrit</span>
+          : isStudent && !c.enrolled
+          ? <button className="enroll-btn" style={{ background: '#3b82f6', color: '#fff' }} onClick={e => onEnroll(e, c.id)} disabled={enrolling === c.id}>
+              {enrolling === c.id ? '...' : "S'inscrire"}
+            </button>
+          : <span style={{ fontSize: 13, color: '#3b82f6' }}>→</span>
+        }
+      </div>
+    </div>
   )
 }
