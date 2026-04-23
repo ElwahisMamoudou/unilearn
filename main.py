@@ -243,7 +243,8 @@ async def upload(file: UploadFile = File(...)):
         f.write(await file.read())
     return {"url": f"/uploads/{file.filename}"}
 
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+os.makedirs("uploads/thumbnails", exist_ok=True)
+app.mount("/uploads/thumbnails", StaticFiles(directory="uploads/thumbnails"), name="thumbnails")
 
 # ─────────────────────────────────────────────
 # GLOBAL ERROR HANDLER
