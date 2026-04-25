@@ -89,31 +89,53 @@ export default function CoursesPage({ myOnly }) {
   return (
     <div style={{ fontFamily: "'Sora', 'DM Sans', sans-serif" }}>
 
-      {/* ── Import fonts ── */}
+      {/* ── Import fonts & Nouveaux Styles Captivants ── */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap');
 
+        /* Design moderne avec Glassmorphism et Ombre Bleutée */
         .course-card-new {
-          background: white;
-          border-radius: 18px;
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(10px);
+          border-radius: 20px;
           overflow: hidden;
-          border: 1px solid #e8ecf4;
+          border: 1px solid rgba(226, 232, 240, 0.8);
           cursor: pointer;
-          transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease;
+          transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Effet rebond dynamique */
           position: relative;
+          box-shadow: 0 10px 30px rgba(15, 31, 61, 0.04);
         }
         .course-card-new:hover {
-          transform: translateY(-6px) scale(1.01);
-          box-shadow: 0 20px 50px rgba(14,26,60,.13);
+          transform: translateY(-8px);
+          box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+          border-color: rgba(59, 130, 246, 0.4);
         }
         .course-card-new:hover .course-card-arrow {
-          transform: translateX(4px);
+          transform: translateX(6px);
           opacity: 1;
         }
         .course-card-arrow {
-          transition: transform .2s ease, opacity .2s ease;
+          transition: transform .3s ease, opacity .3s ease;
           opacity: .5;
         }
+        
+        /* Conteneur pour le zoom de l'image */
+        .card-img-container {
+          height: 170px;
+          position: relative;
+          overflow: hidden;
+        }
+        .card-img-bg {
+          position: absolute;
+          inset: 0;
+          background-size: cover !important;
+          background-position: center !important;
+          transition: transform 0.6s ease;
+        }
+        .course-card-new:hover .card-img-bg {
+          transform: scale(1.1); /* Zoom immersif au survol */
+        }
+
         .filter-pill {
           padding: 6px 16px;
           border-radius: 20px;
@@ -123,6 +145,9 @@ export default function CoursesPage({ myOnly }) {
           border: 1.5px solid;
           transition: all .15s ease;
           white-space: nowrap;
+        }
+        .filter-pill:hover {
+          transform: scale(1.05);
         }
         .progress-bar-fill {
           height: 100%;
@@ -151,7 +176,7 @@ export default function CoursesPage({ myOnly }) {
           transition: all .15s ease;
           letter-spacing: .2px;
         }
-        .enroll-btn:hover { transform: scale(1.04); }
+        .enroll-btn:hover { transform: scale(1.04); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
       `}</style>
 
       {/* ── En-tête hero ── */}
@@ -159,6 +184,7 @@ export default function CoursesPage({ myOnly }) {
         background: 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 50%, #0f2d4a 100%)',
         borderRadius: 20, padding: '32px 36px', marginBottom: 32, color: '#fff',
         position: 'relative', overflow: 'hidden',
+        boxShadow: '0 20px 40px rgba(15, 31, 61, 0.2)'
       }}>
         {/* Motif décoratif */}
         <div style={{ position: 'absolute', right: -20, top: -20, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,.03)', pointerEvents: 'none' }} />
@@ -184,7 +210,10 @@ export default function CoursesPage({ myOnly }) {
               <button onClick={() => navigate('/teacher')} style={{
                 background: '#3b82f6', border: 'none', borderRadius: 12,
                 padding: '10px 20px', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13,
-              }}>+ Créer un cours</button>
+                transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)'
+              }} onMouseOver={e => e.currentTarget.style.transform = 'scale(1.05)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}>
+                + Créer un cours
+              </button>
             )}
           </div>
         </div>
@@ -231,7 +260,10 @@ export default function CoursesPage({ myOnly }) {
               fontSize: 13, outline: 'none', background: 'white',
               boxSizing: 'border-box',
               fontFamily: "'Sora', sans-serif",
+              transition: 'all 0.2s'
             }}
+            onFocus={e => e.currentTarget.style.borderColor = '#3b82f6'}
+            onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
           />
           {search && (
             <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8' }}>×</button>
@@ -283,7 +315,7 @@ export default function CoursesPage({ myOnly }) {
           </p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
           {filtered.map((c, idx) => (
             <CourseCardNew
               key={c.id}
@@ -300,7 +332,7 @@ export default function CoursesPage({ myOnly }) {
           ))}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filtered.map((c, idx) => (
             <CourseListRow
               key={c.id}
@@ -332,13 +364,14 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
   return (
     <div className="course-card-new" onClick={onClick} style={{ animationDelay: `${idx * 40}ms` }}>
 
-      {/* ── Thumbnail / Banner ── */}
-      <div style={{
-        height: 160, position: 'relative', overflow: 'hidden',
-        background: c.thumbnail
-          ? `url(${c.thumbnail}) center/cover no-repeat`
-          : `linear-gradient(135deg, ${gradient[0]} 0%, ${gradient[1]} 100%)`,
-      }}>
+      {/* ── Thumbnail / Banner avec effet de zoom ── */}
+      <div className="card-img-container">
+        <div className="card-img-bg" style={{
+          background: c.thumbnail
+            ? `url(${c.thumbnail})`
+            : `linear-gradient(135deg, ${gradient[0]} 0%, ${gradient[1]} 100%)`,
+        }} />
+        
         {/* Overlay dégradé */}
         {!c.thumbnail && (
           <div style={{
@@ -347,28 +380,30 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
           }} />
         )}
         {c.thumbnail && (
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.25)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)' }} />
         )}
 
         {/* Icône catégorie */}
         <div style={{
           position: 'absolute', top: 14, left: 14,
           width: 42, height: 42, borderRadius: 12,
-          background: 'rgba(255,255,255,.18)',
-          backdropFilter: 'blur(8px)',
+          background: 'rgba(255,255,255,.2)',
+          backdropFilter: 'blur(10px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 20, border: '1px solid rgba(255,255,255,.25)',
+          fontSize: 20, border: '1px solid rgba(255,255,255,.3)',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
         }}>{icon}</div>
 
         {/* Badge catégorie */}
         {c.category?.name && (
           <div style={{
             position: 'absolute', top: 14, right: 14,
-            background: 'rgba(0,0,0,.4)', backdropFilter: 'blur(8px)',
+            background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(8px)',
             color: '#fff', fontSize: 10, fontWeight: 700,
-            padding: '3px 10px', borderRadius: 20,
-            border: '1px solid rgba(255,255,255,.15)',
+            padding: '4px 12px', borderRadius: 20,
+            border: '1px solid rgba(255,255,255,.2)',
             letterSpacing: .5, textTransform: 'uppercase',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
           }}>{c.category.name}</div>
         )}
 
@@ -377,8 +412,8 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
           <div style={{
             position: 'absolute', bottom: 14, right: 14,
             background: '#22c55e', color: '#fff',
-            fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
-            letterSpacing: .5,
+            fontSize: 10, fontWeight: 800, padding: '4px 12px', borderRadius: 20,
+            letterSpacing: .5, boxShadow: '0 4px 10px rgba(34, 197, 94, 0.4)'
           }}>✓ INSCRIT</div>
         )}
 
@@ -386,45 +421,46 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
         {(isTeacher || isAdmin) && (
           <div style={{
             position: 'absolute', bottom: 14, right: 14,
-            background: c.is_published ? 'rgba(34,197,94,.85)' : 'rgba(245,158,11,.85)',
+            background: c.is_published ? 'rgba(34,197,94,.9)' : 'rgba(245,158,11,.9)',
             color: '#fff', fontSize: 10, fontWeight: 800,
-            padding: '3px 10px', borderRadius: 20, letterSpacing: .5,
+            padding: '4px 12px', borderRadius: 20, letterSpacing: .5,
+            boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
           }}>{c.is_published ? 'PUBLIÉ' : 'BROUILLON'}</div>
         )}
 
         {/* Barre de progression étudiants */}
         {isStudent && c.enrolled && pct > 0 && (
-          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'rgba(255,255,255,.2)' }}>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'rgba(255,255,255,.3)' }}>
             <div className="progress-bar-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#22c55e' : '#3b82f6' }} />
           </div>
         )}
       </div>
 
       {/* ── Contenu texte ── */}
-      <div style={{ padding: '18px 18px 16px' }}>
+      <div style={{ padding: '20px' }}>
         <h3 style={{
-          fontFamily: "'Sora', sans-serif", fontSize: 14, fontWeight: 700,
-          color: '#0f1f3d', margin: '0 0 6px', lineHeight: 1.4,
+          fontFamily: "'Sora', sans-serif", fontSize: 15, fontWeight: 700,
+          color: '#0f1f3d', margin: '0 0 8px', lineHeight: 1.4,
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>{c.title}</h3>
 
         {c.description && (
           <p style={{
-            fontSize: 12, color: '#64748b', margin: '0 0 12px', lineHeight: 1.5,
+            fontSize: 12, color: '#64748b', margin: '0 0 16px', lineHeight: 1.6,
             display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
           }}>{c.description}</p>
         )}
 
         {/* Méta */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', paddingBottom: 16, borderBottom: '1px solid #f1f5f9' }}>
+          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
             👨‍🏫 {c.teacher_name || 'Non assigné'}
           </span>
-          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
             📖 {c.lesson_count || 0} leçon{(c.lesson_count || 0) > 1 ? 's' : ''}
           </span>
           {c.student_count > 0 && (
-            <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
               👥 {c.student_count}
             </span>
           )}
@@ -433,7 +469,7 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
         {/* Progression ou action */}
         {isStudent && c.enrolled ? (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Progression</span>
               <span style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? '#22c55e' : '#3b82f6' }}>{pct}%</span>
             </div>
@@ -441,7 +477,7 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
               <div className="progress-bar-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#22c55e' : `linear-gradient(90deg, #3b82f6, #6366f1)` }} />
             </div>
             {pct === 100 && (
-              <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, marginTop: 6, textAlign: 'center' }}>🎉 Cours terminé !</div>
+              <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 700, marginTop: 8, textAlign: 'center' }}>🎉 Cours terminé !</div>
             )}
           </div>
         ) : isStudent && !c.enrolled ? (
@@ -454,11 +490,11 @@ function CourseCardNew({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
             {enrolling === c.id ? '⏳ Inscription...' : "S'inscrire →"}
           </button>
         ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>
-              {isAdmin ? '⚙️ Admin' : isTeacher ? '✏️ Mon cours' : ''}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 2 }}>
+            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+              {isAdmin ? '⚙️ Espace Admin' : isTeacher ? '✏️ Gestion du cours' : ''}
             </span>
-            <span className="course-card-arrow" style={{ fontSize: 14, color: '#3b82f6', fontWeight: 700 }}>
+            <span className="course-card-arrow" style={{ fontSize: 14, color: '#3b82f6', fontWeight: 800 }}>
               Voir →
             </span>
           </div>
@@ -478,40 +514,40 @@ function CourseListRow({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
 
   return (
     <div onClick={onClick} style={{
-      background: 'white', borderRadius: 14, border: '1px solid #e8ecf4',
-      padding: '14px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16,
-      transition: 'box-shadow .15s, transform .15s',
+      background: 'white', borderRadius: 16, border: '1px solid #e8ecf4',
+      padding: '16px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 20,
+      transition: 'all .2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
     }}
-      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 20px rgba(14,26,60,.1)'; e.currentTarget.style.transform = 'translateX(3px)' }}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 10px 25px rgba(59, 130, 246, 0.1)'; e.currentTarget.style.transform = 'translateX(4px)' }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
     >
       {/* Thumbnail mini */}
       <div style={{
-        width: 56, height: 56, borderRadius: 12, flexShrink: 0,
+        width: 64, height: 64, borderRadius: 14, flexShrink: 0,
         background: c.thumbnail
           ? `url(${c.thumbnail}) center/cover no-repeat`
           : `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 22,
+        fontSize: 24, boxShadow: '0 4px 10px rgba(0,0,0,0.05)'
       }}>
         {!c.thumbnail && icon}
       </div>
 
       {/* Infos */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 14, color: '#0f1f3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 15, color: '#0f1f3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {c.title}
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-          {c.teacher_name} · {c.lesson_count || 0} leçon(s)
-          {c.category?.name && ` · ${c.category.name}`}
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, fontWeight: 500 }}>
+          {c.teacher_name} <span style={{opacity: 0.5}}>•</span> {c.lesson_count || 0} leçon(s)
+          {c.category?.name && <> <span style={{opacity: 0.5}}>•</span> {c.category.name}</>}
         </div>
         {isStudent && c.enrolled && pct > 0 && (
-          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ flex: 1, height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#22c55e' : '#3b82f6', borderRadius: 4 }} />
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${pct}%`, height: '100%', background: pct === 100 ? '#22c55e' : 'linear-gradient(90deg, #3b82f6, #6366f1)', borderRadius: 4 }} />
             </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: pct === 100 ? '#22c55e' : '#3b82f6' }}>{pct}%</span>
+            <span style={{ fontSize: 11, fontWeight: 800, color: pct === 100 ? '#22c55e' : '#3b82f6' }}>{pct}%</span>
           </div>
         )}
       </div>
@@ -519,12 +555,12 @@ function CourseListRow({ course: c, idx, isStudent, isTeacher, isAdmin, myOnly, 
       {/* Badge */}
       <div style={{ flexShrink: 0 }}>
         {isStudent && c.enrolled
-          ? <span style={{ fontSize: 11, background: '#d1fae5', color: '#16a34a', padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>Inscrit</span>
+          ? <span style={{ fontSize: 11, background: '#d1fae5', color: '#16a34a', padding: '6px 14px', borderRadius: 20, fontWeight: 800, boxShadow: '0 4px 10px rgba(34, 197, 94, 0.2)' }}>Inscrit ✓</span>
           : isStudent && !c.enrolled
-          ? <button className="enroll-btn" style={{ background: '#3b82f6', color: '#fff' }} onClick={e => onEnroll(e, c.id)} disabled={enrolling === c.id}>
+          ? <button className="enroll-btn" style={{ background: '#3b82f6', color: '#fff', padding: '8px 18px', borderRadius: 12 }} onClick={e => onEnroll(e, c.id)} disabled={enrolling === c.id}>
               {enrolling === c.id ? '...' : "S'inscrire"}
             </button>
-          : <span style={{ fontSize: 13, color: '#3b82f6' }}>→</span>
+          : <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: 800 }}>→</div>
         }
       </div>
     </div>
