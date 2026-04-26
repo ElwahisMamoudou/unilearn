@@ -1,9 +1,9 @@
-import os, uuid, shutil
+import os, uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime, timezone
 
 from models import get_db, User, Course, Enrollment, Homework, HomeworkSubmission
@@ -15,37 +15,14 @@ router = APIRouter(prefix="/api/homeworks", tags=["homeworks"])
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "homeworks")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-ALLOWED_EXT = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".zip", ".txt"}
+ALLOWED_EXT = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".zip", ".txt",
+               ".xls", ".xlsx", ".ppt", ".pptx", ".rar", ".7z", ".gif", ".webp", ".csv"}
+MAX_SIZE_MB = 50
 
 
 # ── Schémas ───────────────────────────────────────
-class HomeworkIn(BaseModel):
-    course_id:   int
-    title:       str
-    description: Optional[str] = None
-    due_date:    datetime
-    max_score:   float = 20.0
-    is_published: bool = False
-
-class HomeworkOut(BaseModel):
-    id: int; course_id: int; title: str
-    description: Optional[str]; due_date: datetime
-    max_score: float; is_published: bool; created_at: datetime
-    submission_count: int = 0
-    my_submission: Optional[dict] = None
-    is_late: bool = False
-    class Config: from_attributes = True
-
-class SubOut(BaseModel):
-    id: int; homework_id: int; student_id: int
-    student_name: str = ""
-    file_path: Optional[str]; comment: Optional[str]
-    score: Optional[float]; feedback: Optional[str]
-    graded: bool; submitted_at: datetime; late: bool
-    class Config: from_attributes = True
-
 class GradeIn(BaseModel):
-    score: float
+    score:    float
     feedback: Optional[str] = None
 
 
@@ -66,39 +43,146 @@ def _sub_dict(s: HomeworkSubmission) -> dict:
     }
 
 
-# ── CRUD Devoirs ──────────────────────────────────
+async def _save_file(file: UploadFile, subfolder: str = "homeworks") -> str:
+    """
+    Valide et sauvegarde un UploadFile.
+    Retourne le chemin relatif stocké en BDD (ex: "uploads/homeworks/abc123.pdf").
+    Lève HTTPException si extension ou taille invalide.
+    """
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(
+            400,
+            f"Extension non autorisée : '{ext}'. "
+            f"Acceptées : {', '.join(sorted(ALLOWED_EXT))}"
+        )
+
+    contents = await file.read()
+    size_mb = len(contents) / (1024 * 1024)
+    if size_mb > MAX_SIZE_MB:
+        raise HTTPException(400, f"Fichier trop volumineux ({size_mb:.1f} Mo). Maximum : {MAX_SIZE_MB} Mo")
+
+    dest_dir = os.path.join(os.path.dirname(__file__), "..", "uploads", subfolder)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    # Nom UUID pour éviter collisions et path traversal
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    dest_path = os.path.join(dest_dir, safe_name)
+    with open(dest_path, "wb") as f_out:
+        f_out.write(contents)
+
+    # Retourner le chemin relatif depuis la racine du projet
+    return f"uploads/{subfolder}/{safe_name}"
+
+
+# ── CRÉATION d'un devoir (avec fichier joint optionnel) ──
+#
+# POURQUOI Form() et non Pydantic body ?
+# FastAPI ne peut pas mélanger un body JSON (BaseModel) et un UploadFile
+# dans la même route. Dès qu'un UploadFile est présent, tout le formulaire
+# doit passer en multipart/form-data via Form(...).
+#
+# Le frontend envoie désormais :
+#   const fd = new FormData()
+#   fd.append('course_id', ...)
+#   fd.append('file', file)   ← optionnel
+#   api.post('/homeworks', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+# ─────────────────────────────────────────────────────────
 @router.post("", status_code=201)
-def create_homework(
-    body: HomeworkIn,
-    db:   Session = Depends(get_db),
-    me:   User    = Depends(require_teacher),
+async def create_homework(
+    # ── Champs formulaire ──────────────────────
+    course_id:    int           = Form(...),
+    title:        str           = Form(...),
+    description:  Optional[str] = Form(None),
+    due_date:     str           = Form(...),        # ISO 8601 string depuis le frontend
+    max_score:    float         = Form(20.0),
+    is_published: bool          = Form(False),
+    # ── Fichier joint (optionnel) ───────────────
+    file: Optional[UploadFile]  = File(None),
+    # ── Dépendances ────────────────────────────
+    db:   Session               = Depends(get_db),
+    me:   User                  = Depends(require_teacher),
 ):
-    course = db.query(Course).filter(Course.id == body.course_id).first()
+    # Vérification du cours
+    course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
     if me.role == "teacher" and course.teacher_id != me.id:
         raise HTTPException(403, "Ce cours ne vous est pas assigné")
 
-    hw = Homework(
-        course_id=body.course_id, title=body.title,
-        description=body.description, due_date=body.due_date,
-        max_score=body.max_score, is_published=body.is_published,
-    )
-    db.add(hw); db.flush()
+    # Parse de la date ISO
+    try:
+        due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(422, "Format de date invalide. Attendu : ISO 8601 (ex: 2025-06-15T23:59:00)")
 
-    if body.is_published:
+    # Sauvegarde du fichier joint si présent
+    file_path = None
+    if file and file.filename:
+        file_path = await _save_file(file, subfolder="homeworks")
+
+    # Création en BDD
+    hw = Homework(
+        course_id    = course_id,
+        title        = title.strip(),
+        description  = description,
+        due_date     = due_dt,
+        max_score    = max_score,
+        is_published = is_published,
+        file_path    = file_path,   # None si pas de fichier → colonne nullable
+    )
+    db.add(hw)
+    db.flush()
+
+    # Notification aux étudiants si publié immédiatement
+    if is_published:
         notify_course_students(
-            db, body.course_id, "homework",
-            f"Nouveau devoir : {body.title}",
-            f"À rendre avant le {body.due_date.strftime('%d/%m/%Y à %H:%M')}",
-            f"/homeworks?course={body.course_id}",
+            db, course_id, "homework",
+            f"Nouveau devoir : {title}",
+            f"À rendre avant le {due_dt.strftime('%d/%m/%Y à %H:%M')}",
+            f"/homeworks?course={course_id}",
         )
 
-    db.commit(); db.refresh(hw)
+    db.commit()
+    db.refresh(hw)
     hw.submission_count = 0
     return hw
 
 
+# ── Télécharger le fichier joint d'un devoir ──────
+@router.get("/{hw_id}/file")
+def download_homework_file(
+    hw_id: int,
+    db:    Session = Depends(get_db),
+    me:    User    = Depends(get_current_user),
+):
+    hw = db.query(Homework).filter(Homework.id == hw_id).first()
+    if not hw:
+        raise HTTPException(404, "Devoir introuvable")
+
+    # Étudiants : seulement si le devoir est publié
+    if me.role == "student" and not hw.is_published:
+        raise HTTPException(403, "Devoir non publié")
+
+    if not hw.file_path:
+        raise HTTPException(404, "Aucun fichier joint à ce devoir")
+
+    # hw.file_path est relatif depuis la racine du projet
+    # ex : "uploads/homeworks/abc123.pdf"
+    abs_path = os.path.join(os.path.dirname(__file__), "..", hw.file_path)
+    abs_path = os.path.normpath(abs_path)
+
+    if not os.path.exists(abs_path):
+        raise HTTPException(404, "Fichier introuvable sur le serveur")
+
+    return FileResponse(
+        path       = abs_path,
+        filename   = os.path.basename(abs_path),
+        media_type = "application/octet-stream",
+    )
+
+
+# ── Liste des devoirs d'un cours ──────────────────
 @router.get("/course/{course_id}")
 def list_homeworks(
     course_id: int,
@@ -133,6 +217,8 @@ def list_homeworks(
             "max_score":        hw.max_score,
             "is_published":     hw.is_published,
             "created_at":       hw.created_at,
+            "file_path":        hw.file_path,       # ← exposé pour permettre le téléchargement
+            "has_file":         bool(hw.file_path), # ← flag pratique côté frontend
             "submission_count": len(hw.submissions),
             "my_submission":    my_sub,
             "is_late":          now > due,
@@ -140,25 +226,48 @@ def list_homeworks(
     return result
 
 
+# ── Mise à jour d'un devoir ───────────────────────
 @router.put("/{hw_id}")
-def update_homework(
-    hw_id: int,
-    body:  HomeworkIn,
-    db:    Session = Depends(get_db),
-    me:    User    = Depends(require_teacher),
+async def update_homework(
+    hw_id:        int,
+    course_id:    int           = Form(...),
+    title:        str           = Form(...),
+    description:  Optional[str] = Form(None),
+    due_date:     str           = Form(...),
+    max_score:    float         = Form(20.0),
+    is_published: bool          = Form(False),
+    file: Optional[UploadFile]  = File(None),
+    db:   Session               = Depends(get_db),
+    me:   User                  = Depends(require_teacher),
 ):
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
-    hw.title        = body.title
-    hw.description  = body.description
-    hw.due_date     = body.due_date
-    hw.max_score    = body.max_score
-    hw.is_published = body.is_published
-    db.commit(); db.refresh(hw)
+
+    try:
+        due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(422, "Format de date invalide")
+
+    # Nouveau fichier → remplace l'ancien
+    if file and file.filename:
+        if hw.file_path:
+            old = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
+            if os.path.exists(old):
+                os.remove(old)
+        hw.file_path = await _save_file(file, subfolder="homeworks")
+
+    hw.title        = title.strip()
+    hw.description  = description
+    hw.due_date     = due_dt
+    hw.max_score    = max_score
+    hw.is_published = is_published
+    db.commit()
+    db.refresh(hw)
     return hw
 
 
+# ── Suppression ───────────────────────────────────
 @router.delete("/{hw_id}", status_code=204)
 def delete_homework(
     hw_id: int,
@@ -168,69 +277,65 @@ def delete_homework(
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
-    db.delete(hw); db.commit()
+
+    # Supprimer le fichier joint s'il existe
+    if hw.file_path:
+        abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+
+    db.delete(hw)
+    db.commit()
 
 
-# ── Soumission de devoir ──────────────────────────
+# ── Soumission de devoir par un étudiant ──────────
 @router.post("/{hw_id}/submit")
 async def submit_homework(
     hw_id:   int,
-    comment: str         = Form(""),
-    file:    UploadFile  = File(...),
-    db:      Session     = Depends(get_db),
-    me:      User        = Depends(get_current_user),
+    comment: str        = Form(""),
+    file:    UploadFile = File(...),
+    db:      Session    = Depends(get_db),
+    me:      User       = Depends(get_current_user),
 ):
     if me.role != "student":
         raise HTTPException(403, "Seuls les étudiants peuvent soumettre")
 
     hw = db.query(Homework).filter(Homework.id == hw_id, Homework.is_published == True).first()
     if not hw:
-        raise HTTPException(404, "Devoir introuvable")
+        raise HTTPException(404, "Devoir introuvable ou non publié")
 
-    # Vérifier inscription
-    enrolled = db.query(Enrollment).filter_by(
-        student_id=me.id, course_id=hw.course_id
-    ).first()
+    enrolled = db.query(Enrollment).filter_by(student_id=me.id, course_id=hw.course_id).first()
     if not enrolled:
         raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
-
-    # Vérifier extension
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_EXT:
-        raise HTTPException(400, f"Extension non autorisée. Acceptés : {', '.join(ALLOWED_EXT)}")
-
-    # Vérifier taille
-    contents = await file.read()
-    if len(contents) > 20 * 1024 * 1024:
-        raise HTTPException(400, "Fichier trop volumineux (max 20 Mo)")
 
     # Supprimer ancienne soumission si elle existe
     existing = db.query(HomeworkSubmission).filter_by(
         homework_id=hw_id, student_id=me.id
     ).first()
-    if existing and existing.file_path:
-        old_path = os.path.join(UPLOAD_DIR, existing.file_path)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+    if existing:
+        if existing.file_path:
+            old = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), "..", "uploads", "submissions", existing.file_path)
+            )
+            if os.path.exists(old):
+                os.remove(old)
         db.delete(existing)
         db.flush()
 
-    # Sauvegarder fichier
-    filename = f"{hw_id}_{me.id}_{uuid.uuid4().hex[:8]}{ext}"
-    with open(os.path.join(UPLOAD_DIR, filename), "wb") as f:
-        f.write(contents)
-
+    rel_path = await _save_file(file, subfolder="submissions")
     now = datetime.now(timezone.utc)
     due = hw.due_date.replace(tzinfo=timezone.utc) if hw.due_date.tzinfo is None else hw.due_date
 
     sub = HomeworkSubmission(
-        homework_id=hw_id,
-        student_id=me.id,
-        file_path=filename,
-        comment=comment or None,
-        late=now > due,
+        homework_id = hw_id,
+        student_id  = me.id,
+        file_path   = os.path.basename(rel_path),  # nom de fichier seul, comme avant
+        comment     = comment or None,
+        late        = now > due,
     )
-    db.add(sub); db.commit(); db.refresh(sub)
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
     return _sub_dict(sub)
 
 
@@ -267,7 +372,7 @@ def download_submission(
     return FileResponse(path, filename=sub.file_path)
 
 
-# ── Noter un devoir ───────────────────────────────
+# ── Notation ──────────────────────────────────────
 @router.put("/{hw_id}/submissions/{sub_id}/grade")
 def grade_submission(
     hw_id:  int,
@@ -287,10 +392,9 @@ def grade_submission(
     sub.graded   = True
     db.commit()
 
-    # Notifier l'étudiant
     create_notification(
         db, sub.student_id, "correction",
-        f"Votre devoir a été corrigé",
+        "Votre devoir a été corrigé",
         f"Note : {body.score}/{sub.homework.max_score}",
         f"/homeworks?course={sub.homework.course_id}",
     )
