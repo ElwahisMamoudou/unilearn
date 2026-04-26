@@ -52,14 +52,11 @@ def require_role(role: str):
 
 
 # ─────────────────────────────────────────────
-# SEED — robuste pour Railway
+# SEED
 # ─────────────────────────────────────────────
 def seed():
     db = SessionLocal()
     try:
-        # ✅ On vérifie si l'admin existe par email, pas par count()
-        # Comme ça même si la DB est vide après un redéploiement,
-        # l'admin est recréé automatiquement
         admin = db.query(User).filter_by(email="admin@unilearn.cm").first()
         if admin:
             logger.info("✅ Admin déjà présent — seed ignoré")
@@ -67,7 +64,6 @@ def seed():
 
         logger.info("🌱 Création des données initiales...")
 
-        # Catégories
         cats = [
             Category(name="Sciences",      color="#0EA5E9"),
             Category(name="Maths",         color="#F59E0B"),
@@ -76,47 +72,37 @@ def seed():
             Category(name="Electronique",  color="#8B5CF6"),
         ]
         for c in cats:
-            exists = db.query(Category).filter_by(name=c.name).first()
-            if not exists:
+            if not db.query(Category).filter_by(name=c.name).first():
                 db.add(c)
         db.flush()
 
-        # ✅ Compte admin
-        admin = User(
+        db.add(User(
             name="Administrateur",
             email="admin@unilearn.cm",
             hashed_pwd=hash_password("admin1234"),
             role="admin",
             is_active=True,
-        )
-        db.add(admin)
+        ))
 
-        # ✅ Compte enseignant de démo
-        teacher = db.query(User).filter_by(email="prof@unilearn.cm").first()
-        if not teacher:
-            teacher = User(
+        if not db.query(User).filter_by(email="prof@unilearn.cm").first():
+            db.add(User(
                 name="Prof. Aminou",
                 email="prof@unilearn.cm",
                 hashed_pwd=hash_password("prof1234"),
                 role="teacher",
                 is_active=True,
-            )
-            db.add(teacher)
+            ))
 
-        # ✅ Compte étudiant de démo
-        student = db.query(User).filter_by(email="etudiant@unilearn.cm").first()
-        if not student:
-            student = User(
+        if not db.query(User).filter_by(email="etudiant@unilearn.cm").first():
+            db.add(User(
                 name="Ahmadou Bello",
                 email="etudiant@unilearn.cm",
                 hashed_pwd=hash_password("etudiant1234"),
                 role="student",
                 is_active=True,
-            )
-            db.add(student)
+            ))
 
         db.commit()
-
         logger.info("✅ Seed terminé avec succès")
         logger.info("   admin@unilearn.cm    / admin1234")
         logger.info("   prof@unilearn.cm     / prof1234")
@@ -135,6 +121,18 @@ def seed():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+
+    # Créer tous les dossiers d'upload AVANT le mount StaticFiles
+    # StaticFiles lève une erreur si le dossier n'existe pas au démarrage
+    for folder in [
+        "uploads",
+        "uploads/thumbnails",
+        "uploads/lessons",
+        "uploads/homeworks",
+        "uploads/submissions",
+    ]:
+        os.makedirs(folder, exist_ok=True)
+
     seed()
     yield
 
@@ -157,7 +155,11 @@ app.add_middleware(
 )
 
 # ─────────────────────────────────────────────
-# ROUTES
+# ROUTES API  ← TOUJOURS AVANT app.mount()
+# ─────────────────────────────────────────────
+# RÈGLE FASTAPI : les include_router() doivent précéder app.mount().
+# Un mount est un catch-all : si déclaré en premier, il intercepte
+# toutes les URLs qui commencent par son préfixe, y compris les routes API.
 # ─────────────────────────────────────────────
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
@@ -174,6 +176,7 @@ app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
 
+
 # ─────────────────────────────────────────────
 # DASHBOARD
 # ─────────────────────────────────────────────
@@ -189,11 +192,12 @@ def dashboard(
         "enrollments": db.query(Enrollment).count(),
     }
 
+
 # ─────────────────────────────────────────────
 # PROFIL
 # ─────────────────────────────────────────────
 class UserUpdateIn(BaseModel):
-    name:  Optional[str] = None
+    name:  Optional[str]      = None
     email: Optional[EmailStr] = None
 
 class ChangePasswordIn(BaseModel):
@@ -216,6 +220,7 @@ def update_profile(
     db.commit()
     return me
 
+
 @app.post("/api/users/change-password")
 def change_password(
     body: ChangePasswordIn,
@@ -230,21 +235,37 @@ def change_password(
     db.commit()
     return {"message": "Mot de passe modifié"}
 
+
 # ─────────────────────────────────────────────
-# UPLOAD
+# UPLOAD GÉNÉRIQUE
 # ─────────────────────────────────────────────
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...)):
-    path = os.path.join(UPLOAD_DIR, file.filename)
+    safe_name = os.path.basename(file.filename or "file")
+    path = os.path.join(UPLOAD_DIR, safe_name)
     with open(path, "wb") as f:
         f.write(await file.read())
-    return {"url": f"/uploads/{file.filename}"}
+    return {"url": f"/uploads/{safe_name}"}
 
-os.makedirs("uploads/thumbnails", exist_ok=True)
-app.mount("/uploads/thumbnails", StaticFiles(directory="uploads/thumbnails"), name="thumbnails")
+
+# ─────────────────────────────────────────────
+# FICHIERS STATIQUES  ← TOUJOURS APRÈS les routes API
+# ─────────────────────────────────────────────
+#
+# UN SEUL mount "/uploads" sert tout le dossier et ses sous-dossiers :
+#   /uploads/lessons/cours.pdf       ✅  (était 404 avant)
+#   /uploads/thumbnails/cover.jpg    ✅
+#   /uploads/homeworks/sujet.pdf     ✅  (nouveau)
+#   /uploads/submissions/rendu.zip   ✅  (nouveau)
+#
+# Remplace l'ancien mount partiel :
+#   app.mount("/uploads/thumbnails", StaticFiles(...), name="thumbnails")
+# qui laissait tout le reste en 404.
+# ─────────────────────────────────────────────
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 
 # ─────────────────────────────────────────────
 # GLOBAL ERROR HANDLER
@@ -256,6 +277,7 @@ def global_exception(request, exc):
         status_code=500,
         content={"message": "Erreur interne du serveur"},
     )
+
 
 # ─────────────────────────────────────────────
 # ROOT
