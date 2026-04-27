@@ -1,6 +1,9 @@
 /**
  * AdminDashboard.jsx
  * Flux : Classes -> detail classe -> [Cours | Etudiants | Enseignants | Inscriptions | Resultats]
+ * ✅ Gestion années académiques : ajout/suppression libre depuis le panneau admin
+ * ✅ Upload image cours (thumbnail) dans la création / modification
+ * ✅ Ouverture PDF uploadés par l'enseignant
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -31,6 +34,38 @@ function Alert({ msg }) {
   )
 }
 
+/* ── Visionneuse PDF ── */
+function PdfViewer({ url, title, onClose }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+      display: 'flex', flexDirection: 'column',
+    }} onClick={onClose}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 20px', background: '#0f1f3d', flexShrink: 0,
+      }} onClick={e => e.stopPropagation()}>
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>📄 {title}</span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <a href={url} target="_blank" rel="noopener noreferrer" style={{
+            background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8,
+            padding: '7px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+            textDecoration: 'none',
+          }}>⬇ Télécharger</a>
+          <button onClick={onClose} style={{
+            background: 'rgba(255,255,255,.15)', color: '#fff', border: 'none',
+            borderRadius: 8, padding: '7px 14px', fontWeight: 700, cursor: 'pointer', fontSize: 16,
+          }}>✕</button>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        <iframe src={url} title={title} style={{ width: '100%', height: '100%', border: 'none' }} />
+      </div>
+    </div>
+  )
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate()
   const [msg, flash] = useFlash()
@@ -51,9 +86,12 @@ export default function AdminDashboard() {
   const [classModal,  setClassModal]  = useState(false)
   const [userModal,   setUserModal]   = useState(false)
   const [courseModal, setCourseModal] = useState(false)
+  const [yearsModal,  setYearsModal]  = useState(false)   // ✅ Modal gestion années
   const [editClass,   setEditClass]   = useState(null)
   const [editUser,    setEditUser]    = useState(null)
   const [editCourse,  setEditCourse]  = useState(null)
+
+  const [pdfViewer,  setPdfViewer]  = useState(null)
 
   const [classForm, setClassForm] = useState({
     name: '', code: '', description: '', level: '',
@@ -61,18 +99,17 @@ export default function AdminDashboard() {
   })
 
   const [showNewYear, setShowNewYear] = useState(false)
-  const [newYearForm, setNewYearForm] = useState({
-    name: '', start_date: '', end_date: '', is_current: false,
-  })
-  const [savingYear, setSavingYear] = useState(false)
+  const [newYearForm, setNewYearForm] = useState({ name: '', start_date: '', end_date: '', is_current: false })
+  const [savingYear,  setSavingYear]  = useState(false)
+
+  /* ✅ Formulaire année dans le modal dédié */
+  const [yearPanelForm, setYearPanelForm] = useState({ name: '', start_date: '', end_date: '', is_current: false })
+  const [savingYearPanel, setSavingYearPanel] = useState(false)
 
   const [userForm,   setUserForm]   = useState({ name: '', email: '', password: '', role: 'student' })
-
-  /* ✅ courseForm avec thumbnail */
   const [courseForm, setCourseForm] = useState({
     title: '', description: '', category_id: '', teacher_id: '', is_published: true,
   })
-  /* ✅ ID du cours nouvellement créé — pour uploader la thumbnail */
   const [savedCourseId, setSavedCourseId] = useState(null)
 
   const [enrolled,       setEnrolled]       = useState([])
@@ -129,6 +166,82 @@ export default function AdminDashboard() {
 
   const backToClasses = () => { setView('classes'); setSelClass(null); setClassDetail(null) }
 
+  /* ══ ANNÉES ACADÉMIQUES ══ */
+
+  /* Création inline dans le modal classe */
+  const createYearInline = async () => {
+    if (!newYearForm.name.trim()) return flash("Nom requis", 'error')
+    if (!newYearForm.start_date)  return flash('Date début requise', 'error')
+    if (!newYearForm.end_date)    return flash('Date fin requise', 'error')
+    setSavingYear(true)
+    try {
+      const { data } = await api.post('/academic/years', {
+        name: newYearForm.name,
+        start_date: new Date(newYearForm.start_date).toISOString(),
+        end_date:   new Date(newYearForm.end_date).toISOString(),
+        is_current: newYearForm.is_current,
+        semesters:  [],
+      })
+      const newYears = [...years, data].sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
+      setYears(newYears)
+      setClassForm(f => ({ ...f, academic_year_id: String(data.id) }))
+      setShowNewYear(false)
+      setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
+      flash(`Année ${data.name} créée !`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur', 'error')
+    } finally {
+      setSavingYear(false)
+    }
+  }
+
+  /* ✅ Création depuis le panneau dédié */
+  const createYearFromPanel = async () => {
+    if (!yearPanelForm.name.trim()) return flash("Nom requis", 'error')
+    if (!yearPanelForm.start_date)  return flash('Date début requise', 'error')
+    if (!yearPanelForm.end_date)    return flash('Date fin requise', 'error')
+    setSavingYearPanel(true)
+    try {
+      const { data } = await api.post('/academic/years', {
+        name: yearPanelForm.name,
+        start_date: new Date(yearPanelForm.start_date).toISOString(),
+        end_date:   new Date(yearPanelForm.end_date).toISOString(),
+        is_current: yearPanelForm.is_current,
+        semesters:  [],
+      })
+      setYears(prev => [...prev, data].sort((a, b) => new Date(b.start_date) - new Date(a.start_date)))
+      setYearPanelForm({ name: '', start_date: '', end_date: '', is_current: false })
+      flash(`Année ${data.name} créée !`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur', 'error')
+    } finally {
+      setSavingYearPanel(false)
+    }
+  }
+
+  /* ✅ Marquer une année comme courante */
+  const setCurrentYear = async (yr) => {
+    try {
+      await api.put(`/academic/years/${yr.id}`, { ...yr, is_current: true })
+      setYears(prev => prev.map(y => ({ ...y, is_current: y.id === yr.id })))
+      flash(`${yr.name} définie comme année courante`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur', 'error')
+    }
+  }
+
+  /* ✅ Supprimer une année */
+  const deleteYear = async (yr) => {
+    if (!confirm(`Supprimer l'année "${yr.name}" ? Les classes associées perdront leur année.`)) return
+    try {
+      await api.delete(`/academic/years/${yr.id}`)
+      setYears(prev => prev.filter(y => y.id !== yr.id))
+      flash(`Année ${yr.name} supprimée`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur suppression', 'error')
+    }
+  }
+
   /* ── Classes CRUD ── */
   const openCreateClass = () => {
     setEditClass(null)
@@ -159,32 +272,6 @@ export default function AdminDashboard() {
     setShowNewYear(false)
     setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
     setClassModal(true)
-  }
-
-  const createYearInline = async () => {
-    if (!newYearForm.name.trim()) return flash("Le nom de l'année est requis", 'error')
-    if (!newYearForm.start_date)  return flash('La date de début est requise', 'error')
-    if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
-    setSavingYear(true)
-    try {
-      const { data } = await api.post('/academic/years', {
-        name:       newYearForm.name,
-        start_date: new Date(newYearForm.start_date).toISOString(),
-        end_date:   new Date(newYearForm.end_date).toISOString(),
-        is_current: newYearForm.is_current,
-        semesters:  [],
-      })
-      const newYears = [...years, data].sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
-      setYears(newYears)
-      setClassForm(f => ({ ...f, academic_year_id: String(data.id) }))
-      setShowNewYear(false)
-      setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
-      flash(`Année ${data.name} créée et sélectionnée !`)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur création année', 'error')
-    } finally {
-      setSavingYear(false)
-    }
   }
 
   const saveClass = async () => {
@@ -283,7 +370,7 @@ export default function AdminDashboard() {
 
   const openEditCourse = c => {
     setEditCourse(c)
-    setSavedCourseId(c.id)  // ✅ Le cours existe déjà → on peut uploader la thumbnail
+    setSavedCourseId(c.id)
     setCourseForm({
       title:        c.title,
       description:  c.description  || '',
@@ -298,7 +385,6 @@ export default function AdminDashboard() {
     e.preventDefault()
     if (!courseForm.title.trim()) return flash('Le titre est requis', 'error')
     if (!courseForm.teacher_id)   return flash('Sélectionnez un enseignant', 'error')
-
     const payload = {
       title:        courseForm.title,
       description:  courseForm.description || null,
@@ -314,12 +400,10 @@ export default function AdminDashboard() {
         setCourseModal(false)
         openClass(selClass)
       } else {
-        // ✅ Créer le cours d'abord, puis permettre l'upload de thumbnail
         const { data: newCourse } = await api.post('/admin/courses', payload)
         setSavedCourseId(newCourse.id)
-        setEditCourse(newCourse)  // ✅ Maintenant on a l'ID pour la thumbnail
-        flash('Cours créé ! Vous pouvez maintenant ajouter une image.', 'success')
-        // Ne pas fermer le modal — laisser l'utilisateur uploader la thumbnail
+        setEditCourse(newCourse)
+        flash('Cours créé ! Ajoutez une image ci-dessous.', 'success')
       }
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
@@ -432,19 +516,26 @@ export default function AdminDashboard() {
     <>
       <Alert msg={msg} />
 
+      {/* ── Visionneuse PDF ── */}
+      {pdfViewer && <PdfViewer url={pdfViewer.url} title={pdfViewer.title} onClose={() => setPdfViewer(null)} />}
+
       {/* ── VUE LISTE CLASSES ── */}
       {view === 'classes' && (
         <>
           <div style={{
             background: 'linear-gradient(135deg, var(--navy), #1a3a6e)',
             borderRadius: 16, padding: '28px 32px', marginBottom: 28,
-            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16,
+            color: '#fff', display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', flexWrap: 'wrap', gap: 16,
           }}>
             <div>
               <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>Administration UniLearn</h2>
               <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>Gérez vos classes, enseignants, étudiants et cours depuis ce panneau.</p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {/* ✅ Bouton gestion années académiques */}
+              <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }}
+                onClick={() => setYearsModal(true)}>📅 Années académiques</button>
               <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,.15)', color: 'white', border: 'none' }}
                 onClick={() => setView('users')}>Gérer les utilisateurs</button>
               <button className="btn btn-sm" style={{ background: 'var(--gold)', color: '#fff', border: 'none' }}
@@ -512,6 +603,7 @@ export default function AdminDashboard() {
           onUnenroll={unenrollStudent}
           onAddStudents={openAddStudents}
           onRemoveStudent={removeStudentFromClass}
+          onOpenPdf={(url, title) => setPdfViewer({ url, title })}
           navigate={navigate}
         />
       )}
@@ -526,6 +618,112 @@ export default function AdminDashboard() {
           onToggleActive={toggleActive}
           onDeleteUser={deleteUser}
         />
+      )}
+
+      {/* ════════════ MODAL ANNÉES ACADÉMIQUES ════════════ */}
+      {yearsModal && (
+        <div className="modal-overlay" onClick={() => setYearsModal(false)}>
+          <div className="modal" style={{ maxWidth: 580, width: '95vw', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">📅 Années académiques</span>
+              <button className="modal-close" onClick={() => setYearsModal(false)}>x</button>
+            </div>
+            <div className="modal-body">
+
+              {/* Formulaire nouvelle année */}
+              <div style={{
+                background: '#f0f9ff', borderRadius: 12, padding: 18,
+                border: '1px solid #bae6fd', marginBottom: 20,
+              }}>
+                <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 14, fontSize: 14 }}>
+                  ➕ Ajouter une nouvelle année
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Nom *</label>
+                  <input className="form-input" value={yearPanelForm.name}
+                    onChange={e => setYearPanelForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="Ex : 2025-2026" />
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Date début *</label>
+                    <input className="form-input" type="date" value={yearPanelForm.start_date}
+                      onChange={e => setYearPanelForm(f => ({ ...f, start_date: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Date fin *</label>
+                    <input className="form-input" type="date" value={yearPanelForm.end_date}
+                      onChange={e => setYearPanelForm(f => ({ ...f, end_date: e.target.value }))} />
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, marginBottom: 14 }}>
+                  <input type="checkbox" checked={yearPanelForm.is_current}
+                    onChange={e => setYearPanelForm(f => ({ ...f, is_current: e.target.checked }))}
+                    style={{ width: 15, height: 15 }} />
+                  Marquer comme année courante
+                </label>
+                <button type="button" className="btn btn-primary btn-sm"
+                  onClick={createYearFromPanel} disabled={savingYearPanel} style={{ width: '100%' }}>
+                  {savingYearPanel ? 'Création...' : '✓ Créer cette année'}
+                </button>
+              </div>
+
+              {/* Liste des années existantes */}
+              <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 10, fontSize: 14 }}>
+                Années existantes ({years.length})
+              </div>
+              {years.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                  Aucune année académique. Créez-en une ci-dessus.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {years.map(yr => (
+                    <div key={yr.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '12px 16px', borderRadius: 10,
+                      background: yr.is_current ? '#f0fdf4' : 'white',
+                      border: `1px solid ${yr.is_current ? '#bbf7d0' : '#e2e8f0'}`,
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {yr.name}
+                          {yr.is_current && (
+                            <span style={{ fontSize: 10, background: '#22c55e', color: '#fff', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                              COURANTE
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                          {yr.start_date ? new Date(yr.start_date).toLocaleDateString('fr-FR') : '—'} →{' '}
+                          {yr.end_date   ? new Date(yr.end_date).toLocaleDateString('fr-FR')   : '—'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {!yr.is_current && (
+                          <button className="btn btn-outline btn-sm"
+                            onClick={() => setCurrentYear(yr)}
+                            style={{ fontSize: 11 }}>
+                            ✓ Définir courante
+                          </button>
+                        )}
+                        <button className="btn btn-danger btn-sm"
+                          onClick={() => deleteYear(yr)}
+                          style={{ fontSize: 11 }}>
+                          Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setYearsModal(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ════════════ MODAL CLASSE ════════════ */}
@@ -578,13 +776,13 @@ export default function AdminDashboard() {
                     onChange={e => setClassForm(f => ({ ...f, academic_year_id: e.target.value }))}>
                     <option value="">-- Choisir une année --</option>
                     {years.map(y => (
-                      <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' ✓ (courante)' : ''}</option>
+                      <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' ✓' : ''}</option>
                     ))}
                   </select>
                   <button type="button" className="btn btn-outline btn-sm"
                     style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                     onClick={() => setShowNewYear(v => !v)}>
-                    {showNewYear ? '✕ Annuler' : '+ Nouvelle année'}
+                    {showNewYear ? '✕' : '+ Nouvelle'}
                   </button>
                 </div>
                 {classForm.academic_year_id && !showNewYear && (
@@ -594,7 +792,7 @@ export default function AdminDashboard() {
                 )}
                 {showNewYear && (
                   <div style={{ marginTop: 12, padding: 16, background: '#f0f9ff', borderRadius: 10, border: '1px solid #bae6fd' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>📅 Créer une nouvelle année académique</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', marginBottom: 12 }}>📅 Nouvelle année</div>
                     <div className="form-group">
                       <label className="form-label">Nom *</label>
                       <input className="form-input" value={newYearForm.name}
@@ -603,12 +801,12 @@ export default function AdminDashboard() {
                     </div>
                     <div className="form-row">
                       <div className="form-group">
-                        <label className="form-label">Date de début *</label>
+                        <label className="form-label">Début *</label>
                         <input className="form-input" type="date" value={newYearForm.start_date}
                           onChange={e => setNewYearForm(f => ({ ...f, start_date: e.target.value }))} />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Date de fin *</label>
+                        <label className="form-label">Fin *</label>
                         <input className="form-input" type="date" value={newYearForm.end_date}
                           onChange={e => setNewYearForm(f => ({ ...f, end_date: e.target.value }))} />
                       </div>
@@ -617,11 +815,11 @@ export default function AdminDashboard() {
                       <input type="checkbox" checked={newYearForm.is_current}
                         onChange={e => setNewYearForm(f => ({ ...f, is_current: e.target.checked }))}
                         style={{ width: 15, height: 15 }} />
-                      Marquer comme année courante
+                      Marquer comme courante
                     </label>
                     <button type="button" className="btn btn-primary btn-sm"
                       onClick={createYearInline} disabled={savingYear} style={{ width: '100%' }}>
-                      {savingYear ? 'Création...' : '✓ Créer et sélectionner cette année'}
+                      {savingYear ? 'Création...' : '✓ Créer et sélectionner'}
                     </button>
                   </div>
                 )}
@@ -719,13 +917,24 @@ export default function AdminDashboard() {
             <form onSubmit={saveCourse}>
               <div className="modal-body">
 
-                {/* ✅ Thumbnail en haut du modal */}
+                {/* ✅ Upload image en haut */}
                 <div className="form-group">
-                  <ThumbnailUploader
-                    courseId={savedCourseId}
-                    current={editCourse?.thumbnail}
-                    onUploaded={url => setEditCourse(c => c ? ({ ...c, thumbnail: url }) : c)}
-                  />
+                  <label className="form-label">Image du cours</label>
+                  {savedCourseId ? (
+                    <ThumbnailUploader
+                      courseId={savedCourseId}
+                      current={editCourse?.thumbnail}
+                      onUploaded={url => setEditCourse(c => c ? ({ ...c, thumbnail: url }) : c)}
+                    />
+                  ) : (
+                    <div style={{
+                      padding: '14px 16px', borderRadius: 10,
+                      background: '#fafafa', border: '1.5px dashed #cbd5e1',
+                      fontSize: 13, color: '#94a3b8', textAlign: 'center',
+                    }}>
+                      📸 L'image sera disponible après la création du cours
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -767,30 +976,23 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                {/* ✅ Message si cours vient d'être créé */}
-                {savedCourseId && !editCourse?.id && (
+                {savedCourseId && (
                   <div style={{
                     padding: '10px 14px', borderRadius: 10,
                     background: '#f0fdf4', border: '1px solid #bbf7d0',
                     color: '#16a34a', fontSize: 13, fontWeight: 600,
                   }}>
-                    ✓ Cours créé ! Vous pouvez uploader une image puis fermer.
+                    ✓ Cours créé ! Ajoutez une image puis fermez.
                   </div>
                 )}
-
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-outline" onClick={closeCourseModal}>
                   {savedCourseId ? 'Fermer' : 'Annuler'}
                 </button>
-                {!savedCourseId && (
+                {(!savedCourseId || editCourse?.id) && (
                   <button type="submit" className="btn btn-primary">
-                    {editCourse ? 'Enregistrer' : 'Créer le cours'}
-                  </button>
-                )}
-                {savedCourseId && editCourse && (
-                  <button type="submit" className="btn btn-primary">
-                    Enregistrer les modifications
+                    {editCourse?.id ? 'Enregistrer' : 'Créer le cours'}
                   </button>
                 )}
               </div>
@@ -907,7 +1109,7 @@ function ClassDetailView({
   onBack, onEdit, onExport,
   onCreateCourse, onEditCourse, onDeleteCourse, onTogglePublish,
   onLoadEnrolled, onEnroll, onUnenroll,
-  onAddStudents, onRemoveStudent, navigate,
+  onAddStudents, onRemoveStudent, onOpenPdf, navigate,
 }) {
   const c = lvlColor(selClass.level)
   const tabs = [
@@ -994,40 +1196,58 @@ function ClassDetailView({
                 <div className="empty-state"><h3>Aucun cours</h3><p>Créez le premier cours pour cette classe.</p></div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {(classDetail.courses ?? []).map(course => (
-                    <div key={course.id} className="card">
-                      <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-                        {/* ✅ Miniature thumbnail si disponible */}
-                        {course.thumbnail ? (
-                          <img src={course.thumbnail} alt={course.title}
-                            style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                        ) : (
-                          <div style={{
-                            width: 48, height: 48, borderRadius: 8, flexShrink: 0,
-                            background: 'linear-gradient(135deg, #1e3a5f, #0ea5e9)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 20,
-                          }}>📚</div>
-                        )}
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{course.title}</div>
-                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {course.teacher_name} · {course.lesson_count ?? 0} leçon(s) · {course.student_count ?? 0} étudiant(s)
+                  {(classDetail.courses ?? []).map(course => {
+                    const pdfLessons = (course.lessons || []).filter(l => l.file_url?.toLowerCase().endsWith('.pdf'))
+                    return (
+                      <div key={course.id} className="card">
+                        <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                          {course.thumbnail ? (
+                            <img src={course.thumbnail} alt={course.title}
+                              style={{ width: 56, height: 56, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+                          ) : (
+                            <div style={{
+                              width: 56, height: 56, borderRadius: 10, flexShrink: 0,
+                              background: 'linear-gradient(135deg, #1e3a5f, #0ea5e9)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
+                            }}>📚</div>
+                          )}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{course.title}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                              {course.teacher_name} · {course.lesson_count ?? 0} leçon(s) · {course.student_count ?? 0} étudiant(s)
+                            </div>
+                            {/* ✅ Boutons PDF */}
+                            {pdfLessons.length > 0 && (
+                              <div style={{ marginTop: 6, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                {pdfLessons.slice(0, 3).map(l => (
+                                  <button key={l.id}
+                                    onClick={() => onOpenPdf(l.file_url, l.title)}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                                      fontSize: 11, fontWeight: 700, padding: '4px 10px',
+                                      borderRadius: 7, border: '1.5px solid #fca5a5',
+                                      background: '#fff', cursor: 'pointer', color: '#ef4444',
+                                    }}>
+                                    📄 {l.title.slice(0, 18)}{l.title.length > 18 ? '…' : ''}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: course.is_published ? '#d1fae5' : '#fef9c3', color: course.is_published ? '#065f46' : '#854d0e' }}>
+                            {course.is_published ? 'Publié' : 'Brouillon'}
+                          </span>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button className="btn btn-outline btn-sm" onClick={() => navigate(`/courses/${course.id}`)}>Voir</button>
+                            <button className="btn btn-outline btn-sm" onClick={() => onEditCourse(course)}>Modifier</button>
+                            <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>{course.is_published ? 'Dépublier' : 'Publier'}</button>
+                            <button className="btn btn-outline btn-sm" onClick={() => { onLoadEnrolled(course.id); setDetailTab('enrollments') }}>Inscrire</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => onDeleteCourse(course.id)}>Supprimer</button>
                           </div>
                         </div>
-                        <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: course.is_published ? '#d1fae5' : '#fef9c3', color: course.is_published ? '#065f46' : '#854d0e' }}>
-                          {course.is_published ? 'Publié' : 'Brouillon'}
-                        </span>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button className="btn btn-outline btn-sm" onClick={() => navigate(`/courses/${course.id}`)}>Voir</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => onEditCourse(course)}>Modifier</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => onTogglePublish(course)}>{course.is_published ? 'Dépublier' : 'Publier'}</button>
-                          <button className="btn btn-outline btn-sm" onClick={() => { onLoadEnrolled(course.id); setDetailTab('enrollments') }}>Inscrire</button>
-                          <button className="btn btn-danger btn-sm" onClick={() => onDeleteCourse(course.id)}>Supprimer</button>
-                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
