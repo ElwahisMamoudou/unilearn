@@ -181,7 +181,11 @@ export default function AdminDashboard() {
   const [years,      setYears]      = useState([])
   const [loading,    setLoading]    = useState(true)
 
-  const [view, setView] = useState('classes')
+  const [view,        setView]        = useState('classes')
+  const [selClass,    setSelClass]    = useState(null)
+  const [classDetail, setClassDetail] = useState(null)
+  const [detailTab,   setDetailTab]   = useState('courses')
+  const [detailLoad,  setDetailLoad]  = useState(false)
 
   // Modals
   const [classModal,  setClassModal]  = useState(false)
@@ -241,12 +245,17 @@ export default function AdminDashboard() {
   useEffect(() => { loadAll() }, [loadAll])
 
   /* ── Detail classe ── */
-  // ── Ouvrir une classe → navigate vers ClassDetail.jsx (vue unifiée) ──
-  const openClass = useCallback((cls) => {
-    navigate(`/classes/${cls.id}`)
-  }, [navigate])
+  const openClass = useCallback(async cls => {
+    setSelClass(cls); setDetailTab('courses')
+    setView('classDetail'); setDetailLoad(true); setClassDetail(null)
+    try {
+      const { data } = await api.get(`/classes/${cls.id}`)
+      setClassDetail(data)
+    } catch (err) { flash(err.response?.data?.detail || 'Erreur','error') }
+    finally { setDetailLoad(false) }
+  }, [flash])
 
-  const backToClasses = () => { setView('classes') }
+  const backToClasses = () => { setView('classes'); setSelClass(null); setClassDetail(null) }
 
   /* ══════════════════════════════════════════════
      MODAL ANNÉES — création / édition / suppression
@@ -372,6 +381,7 @@ export default function AdminDashboard() {
       if (editClass) {
         await api.put(`/classes/${editClass.id}`, payload)
         flash('Classe mise à jour')
+        if (classDetail?.id === editClass.id) openClass({ ...editClass, ...payload })
       } else {
         await api.post('/classes', payload)
         flash('Classe créée')
@@ -386,6 +396,7 @@ export default function AdminDashboard() {
     try {
       await api.delete(`/classes/${id}`)
       flash('Classe supprimée')
+      if (selClass?.id === id) backToClasses()
       loadAll()
     } catch { flash('Erreur suppression','error') }
   }
@@ -414,9 +425,13 @@ export default function AdminDashboard() {
 
   /* ── Cours CRUD ── */
   const openCreateCourse = () => {
-    // La création de cours se fait maintenant depuis ClassDetail
-    // On redirige vers /admin pour rester dans le dashboard
-    flash('Pour créer un cours, ouvrez la classe concernée.', 'error')
+    setEditCourse(null); setSavedCourseId(null); setPendingThumb(null)
+    setCourseForm({
+      title:'', description:'', category_id:'',
+      teacher_id: classDetail?.teacher_id ? String(classDetail.teacher_id) : '',
+      is_published:true,
+    })
+    setCourseModal(true)
   }
 
   const openEditCourse = c => {
@@ -439,12 +454,12 @@ export default function AdminDashboard() {
       title: courseForm.title, description: courseForm.description||null,
       teacher_id: parseInt(courseForm.teacher_id),
       category_id: courseForm.category_id ? parseInt(courseForm.category_id) : null,
-      is_published: courseForm.is_published,
+      is_published: courseForm.is_published, class_id: classDetail?.id,
     }
     try {
       if (editCourse) {
         await api.put(`/admin/courses/${editCourse.id}`, payload)
-        flash('Cours modifié !'); setCourseModal(false)
+        flash('Cours modifié !'); setCourseModal(false); openClass(selClass)
       } else {
         const { data: newCourse } = await api.post('/admin/courses', payload)
         setSavedCourseId(newCourse.id)
@@ -473,17 +488,18 @@ export default function AdminDashboard() {
   const closeCourseModal = () => {
     setCourseModal(false); setSavedCourseId(null)
     setEditCourse(null); setPendingThumb(null)
+    openClass(selClass)
   }
 
   const deleteCourse = async id => {
     if (!confirm('Supprimer ce cours et toutes ses leçons ?')) return
-    try { await api.delete(`/admin/courses/${id}`); flash('Cours supprimé') }
+    try { await api.delete(`/admin/courses/${id}`); flash('Cours supprimé'); openClass(selClass) }
     catch (err) { flash(err.response?.data?.detail || 'Erreur','error') }
   }
 
   const togglePublish = async c => {
     await api.put(`/admin/courses/${c.id}`, { title:c.title, description:c.description, teacher_id:c.teacher_id, is_published:!c.is_published })
-    flash(c.is_published ? 'Cours dépublié' : 'Cours publié')
+    flash(c.is_published ? 'Cours dépublié' : 'Cours publié'); openClass(selClass)
   }
 
   /* ── Inscriptions ── */
@@ -503,18 +519,40 @@ export default function AdminDashboard() {
 
   /* ── Étudiants classe ── */
   const openAddStudents = () => {
-    flash('Pour ajouter des étudiants, ouvrez la classe concernée.', 'error')
+    const ids = new Set((classDetail?.students||[]).map(s=>s.id))
+    setSelectedStuds([]); setStudSearch('')
+    setStudModal({ open:true, available: students.filter(s => !ids.has(s.id)) })
   }
   const confirmAddStudents = async () => {
-    flash('Pour ajouter des étudiants, ouvrez la classe concernée.', 'error')
+    if (!selectedStuds.length) return
+    try {
+      const { data } = await api.post(`/classes/${classDetail.id}/students`, { student_ids:selectedStuds })
+      flash(`${data.added} étudiant(s) ajouté(s)`); setStudModal(false); openClass(selClass)
+    } catch { flash('Erreur','error') }
   }
   const removeStudentFromClass = async (sid, name) => {
-    flash('Pour retirer un étudiant, ouvrez la classe concernée.', 'error')
+    if (!confirm(`Retirer ${name} de la classe ?`)) return
+    try { await api.delete(`/classes/${classDetail.id}/students/${sid}`); flash(`${name} retiré(e)`); openClass(selClass) }
+    catch { flash('Erreur','error') }
   }
 
   /* ── Export CSV ── */
   const exportCSV = async () => {
-    flash('Pour exporter les résultats, ouvrez la classe concernée.', 'error')
+    try {
+      const { data } = await api.get(`/classes/${classDetail.id}/results`)
+      const e = data.exams||[], h = data.homeworks||[]
+      const header = ['Etudiant','Matricule',...e.map(x=>`Exam:${x.title}`),...h.map(x=>`Devoir:${x.title}`)].join(';')
+      const rows = data.students.map(s => [
+        s.student_name, s.matricule||'',
+        ...e.map(x => { const r=s.exams[x.id]; return r?.submitted?`${r.score??'?'}/${r.max??'?'}`:'NS' }),
+        ...h.map(x => { const r=s.homeworks[x.id]; return r?.submitted?`${r.score??'?'}/${r.max}`:'NS' }),
+      ].join(';')).join('\n')
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(new Blob(['\uFEFF'+header+'\n'+rows], { type:'text/csv;charset=utf-8;' })),
+        download: `resultats_${classDetail.name}.csv`,
+      })
+      a.click()
+    } catch { flash('Erreur export','error') }
   }
 
   const filteredClasses = classes.filter(c =>
@@ -598,6 +636,22 @@ export default function AdminDashboard() {
             </div>
           )}
         </>
+      )}
+
+      {view==='classDetail' && selClass && (
+        <ClassDetailView
+          selClass={selClass} classDetail={classDetail}
+          detailTab={detailTab} setDetailTab={setDetailTab}
+          detailLoad={detailLoad} teachers={teachers} students={students}
+          enrolled={enrolled} enrollCourseId={enrollCourseId}
+          availableForEnroll={availableForEnroll}
+          onBack={backToClasses} onEdit={e=>openEditClass(selClass,e)} onExport={exportCSV}
+          onCreateCourse={openCreateCourse} onEditCourse={openEditCourse}
+          onDeleteCourse={deleteCourse} onTogglePublish={togglePublish}
+          onLoadEnrolled={loadEnrolled} onEnroll={enrollStudent} onUnenroll={unenrollStudent}
+          onAddStudents={openAddStudents} onRemoveStudent={removeStudentFromClass}
+          navigate={navigate}
+        />
       )}
 
       {view==='users' && (
