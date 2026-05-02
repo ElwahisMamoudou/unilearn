@@ -241,7 +241,7 @@ export default function AdminDashboard() {
   useEffect(() => { loadAll() }, [loadAll])
 
   /* ── Detail classe ── */
-  // ── Ouvrir une classe → navigate vers ClassDetail.jsx (vue unifiée) ──
+  // Navigue vers ClassDetail.jsx (vue unifiée — même chose que /classes/:id)
   const openClass = useCallback((cls) => {
     navigate(`/classes/${cls.id}`)
   }, [navigate])
@@ -414,9 +414,9 @@ export default function AdminDashboard() {
 
   /* ── Cours CRUD ── */
   const openCreateCourse = () => {
-    // La création de cours se fait maintenant depuis ClassDetail
-    // On redirige vers /admin pour rester dans le dashboard
-    flash('Pour créer un cours, ouvrez la classe concernée.', 'error')
+    setEditCourse(null); setSavedCourseId(null); setPendingThumb(null)
+    setCourseForm({ title:'', description:'', category_id:'', teacher_id:'', is_published:true })
+    setCourseModal(true)
   }
 
   const openEditCourse = c => {
@@ -503,13 +503,14 @@ export default function AdminDashboard() {
 
   /* ── Étudiants classe ── */
   const openAddStudents = () => {
-    flash('Pour ajouter des étudiants, ouvrez la classe concernée.', 'error')
+    setSelectedStuds([]); setStudSearch('')
+    setStudModal({ open:true, available: students })
   }
   const confirmAddStudents = async () => {
-    flash('Pour ajouter des étudiants, ouvrez la classe concernée.', 'error')
+    setStudModal(false)
   }
   const removeStudentFromClass = async (sid, name) => {
-    flash('Pour retirer un étudiant, ouvrez la classe concernée.', 'error')
+    flash('Pour gérer les étudiants, ouvrez la classe.', 'error')
   }
 
   /* ── Export CSV ── */
@@ -1085,255 +1086,6 @@ function ClassCard({ cls, onClick, onEdit, onDelete }) {
   )
 }
 
-/* ══ ClassDetailView ══ */
-function ClassDetailView({
-  selClass,classDetail,detailTab,setDetailTab,detailLoad,
-  teachers,students,enrolled,enrollCourseId,availableForEnroll,
-  onBack,onEdit,onExport,
-  onCreateCourse,onEditCourse,onDeleteCourse,onTogglePublish,
-  onLoadEnrolled,onEnroll,onUnenroll,
-  onAddStudents,onRemoveStudent,navigate,
-}) {
-  const c = lvlColor(selClass.level)
-  const tabs = [
-    {id:'courses',    label:`Cours (${classDetail?.courses?.length??'...'})`},
-    {id:'students',   label:`Étudiants (${classDetail?.students?.length??'...'})`},
-    {id:'teachers',   label:'Enseignants'},
-    {id:'enrollments',label:'Inscriptions aux cours'},
-    {id:'results',    label:'Résultats'},
-  ]
-
-  return (
-    <div>
-      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:20,fontSize:14,color:'var(--text-muted)'}}>
-        <button onClick={onBack} style={{background:'none',border:'none',cursor:'pointer',color:'#3b82f6',fontWeight:600,padding:0,fontSize:14}}>
-          ← Retour aux classes
-        </button>
-        <span>/</span>
-        <span style={{color:'var(--navy)',fontWeight:700}}>{selClass.name}</span>
-      </div>
-
-      <div style={{background:'linear-gradient(135deg,var(--navy),#1a3a6e)',borderRadius:16,padding:'24px 28px',marginBottom:24,color:'white',borderLeft:`5px solid ${c}`}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}}>
-              <h2 style={{fontFamily:'Playfair Display,serif',fontSize:22,margin:0}}>{selClass.name}</h2>
-              {selClass.code && <span style={{fontSize:11,background:'rgba(255,255,255,.15)',padding:'2px 10px',borderRadius:20,fontWeight:600}}>{selClass.code}</span>}
-            </div>
-            <div style={{fontSize:13,opacity:.75,display:'flex',gap:16,flexWrap:'wrap'}}>
-              {selClass.level        && <span>{selClass.level}</span>}
-              {selClass.teacher_name && <span>Enseignant : {selClass.teacher_name}</span>}
-              {(classDetail?.academic_year_name||selClass.academic_year_name) && (
-                <span>📅 {classDetail?.academic_year_name||selClass.academic_year_name}</span>
-              )}
-            </div>
-          </div>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'white',border:'none'}} onClick={onEdit}>Modifier</button>
-            <button className="btn btn-sm" style={{background:'rgba(255,255,255,.15)',color:'white',border:'none'}} onClick={onExport}>Export CSV</button>
-          </div>
-        </div>
-        {classDetail && (
-          <div style={{display:'flex',gap:24,marginTop:16,flexWrap:'wrap'}}>
-            {[
-              {l:'Étudiants',v:classDetail.stats?.total_students??classDetail.students?.length,c:'#60a5fa'},
-              {l:'Cours',    v:classDetail.stats?.total_courses ??classDetail.courses?.length,  c:'#34d399'},
-              {l:'Examens',  v:classDetail.stats?.total_exams   ??classDetail.exams?.length,    c:'#fbbf24'},
-              {l:'Devoirs',  v:classDetail.stats?.total_homeworks??classDetail.homeworks?.length,c:'#a78bfa'},
-            ].map(s=>(
-              <div key={s.l}>
-                <div style={{fontSize:22,fontWeight:800,color:s.c}}>{s.v??0}</div>
-                <div style={{fontSize:11,opacity:.6}}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={{display:'flex',gap:0,marginBottom:24,borderBottom:'1px solid var(--border)',overflowX:'auto'}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setDetailTab(t.id)} style={{
-            padding:'10px 18px',border:'none',cursor:'pointer',fontSize:13,whiteSpace:'nowrap',
-            fontWeight:detailTab===t.id?700:400,
-            color:detailTab===t.id?'var(--navy)':'var(--text-muted)',
-            background:'transparent',
-            borderBottom:detailTab===t.id?'2px solid var(--navy)':'2px solid transparent',
-            marginBottom:-1,
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {detailLoad ? (
-        <div className="loading-overlay"><div className="spinner"/></div>
-      ) : !classDetail ? (
-        <div className="empty-state"><h3>Chargement...</h3></div>
-      ) : (
-        <>
-          {detailTab==='courses' && (
-            <div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-                <span style={{fontSize:14,color:'var(--text-muted)'}}>{classDetail.courses?.length??0} cours dans cette classe</span>
-                <button className="btn btn-primary btn-sm" onClick={onCreateCourse}>+ Nouveau cours</button>
-              </div>
-              {(classDetail.courses?.length??0)===0 ? (
-                <div className="empty-state"><h3>Aucun cours</h3><p>Créez le premier cours pour cette classe.</p></div>
-              ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                  {(classDetail.courses??[]).map(course=>(
-                    <div key={course.id} className="card">
-                      <div className="card-body" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-                        {thumbUrl(course.thumbnail) ? (
-                          <img src={thumbUrl(course.thumbnail)} alt={course.title}
-                            style={{width:56,height:56,borderRadius:10,objectFit:'cover',flexShrink:0}}/>
-                        ) : (
-                          <div style={{width:56,height:56,borderRadius:10,flexShrink:0,background:'linear-gradient(135deg,#1e3a5f,#0ea5e9)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>📚</div>
-                        )}
-                        <div style={{flex:1}}>
-                          <div style={{fontWeight:600,fontSize:14,color:'var(--navy)'}}>{course.title}</div>
-                          <div style={{fontSize:12,color:'var(--text-muted)',marginTop:2}}>
-                            {course.teacher_name} · {course.lesson_count??0} leçon(s) · {course.student_count??0} étudiant(s)
-                          </div>
-                        </div>
-                        <span style={{fontSize:11,padding:'2px 10px',borderRadius:20,background:course.is_published?'#d1fae5':'#fef9c3',color:course.is_published?'#065f46':'#854d0e'}}>
-                          {course.is_published?'Publié':'Brouillon'}
-                        </span>
-                        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                          <button className="btn btn-outline btn-sm" onClick={()=>navigate(`/courses/${course.id}`)}>Voir</button>
-                          <button className="btn btn-outline btn-sm" onClick={()=>onEditCourse(course)}>Modifier</button>
-                          <button className="btn btn-outline btn-sm" onClick={()=>onTogglePublish(course)}>{course.is_published?'Dépublier':'Publier'}</button>
-                          <button className="btn btn-outline btn-sm" onClick={()=>{onLoadEnrolled(course.id);setDetailTab('enrollments')}}>Inscrire</button>
-                          <button className="btn btn-danger btn-sm" onClick={()=>onDeleteCourse(course.id)}>Supprimer</button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {detailTab==='students' && (
-            <div>
-              <div style={{display:'flex',gap:8,marginBottom:16}}>
-                <button className="btn btn-primary btn-sm" onClick={onAddStudents}>+ Ajouter des étudiants</button>
-              </div>
-              {(classDetail.students?.length??0)===0 ? (
-                <div className="empty-state"><h3>Aucun étudiant dans cette classe</h3></div>
-              ) : (
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',gap:10}}>
-                  {(classDetail.students??[]).map(s=>(
-                    <div key={s.id} className="card">
-                      <div className="card-body" style={{display:'flex',alignItems:'center',gap:12}}>
-                        <div style={{width:38,height:38,borderRadius:'50%',flexShrink:0,background:'var(--navy)',color:'white',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:13}}>
-                          {s.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}
-                        </div>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600,fontSize:13,color:'var(--navy)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
-                          <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.email}</div>
-                          {s.matricule && <div style={{fontSize:10,color:'#64748b'}}>#{s.matricule}</div>}
-                        </div>
-                        <button className="btn btn-danger btn-sm" style={{padding:'2px 8px',fontSize:11}}
-                          onClick={()=>onRemoveStudent(s.id,s.name)}>Retirer</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {detailTab==='teachers' && (
-            <div>
-              {(() => {
-                const teacherIds = new Set(); const list = []
-                if (classDetail.teacher_id) {
-                  const t = teachers.find(t=>t.id===classDetail.teacher_id)
-                  if (t) { teacherIds.add(t.id); list.push({...t,role_in_class:'Responsable de classe'}) }
-                }
-                classDetail.courses?.forEach(c => {
-                  if (c.teacher_id && !teacherIds.has(c.teacher_id)) {
-                    const t = teachers.find(t=>t.id===c.teacher_id)
-                    if (t) { teacherIds.add(t.id); list.push({...t,role_in_class:`Cours : ${c.title.slice(0,30)}`}) }
-                  }
-                })
-                if (list.length===0) return <div className="empty-state"><h3>Aucun enseignant assigné</h3></div>
-                return (
-                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                    {list.map(t=>(
-                      <div key={t.id} className="card">
-                        <div className="card-body" style={{display:'flex',alignItems:'center',gap:14}}>
-                          <div style={{width:42,height:42,borderRadius:'50%',flexShrink:0,background:'#0EA5E922',color:'#0EA5E9',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:14}}>
-                            {t.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}
-                          </div>
-                          <div style={{flex:1}}>
-                            <div style={{fontWeight:600,fontSize:14,color:'var(--navy)'}}>{t.name}</div>
-                            <div style={{fontSize:12,color:'var(--text-muted)'}}>{t.email}</div>
-                          </div>
-                          <span style={{fontSize:11,padding:'2px 10px',borderRadius:20,background:'#e0f2fe',color:'#0369a1',fontWeight:600}}>{t.role_in_class}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
-            </div>
-          )}
-
-          {detailTab==='enrollments' && (
-            <div>
-              <div className="form-group" style={{maxWidth:420,marginBottom:24}}>
-                <label className="form-label">Sélectionner un cours</label>
-                <select className="form-select" value={enrollCourseId||''}
-                  onChange={e=>onLoadEnrolled(parseInt(e.target.value))}>
-                  <option value="">-- Choisir un cours --</option>
-                  {(classDetail.courses??[]).map(c=>(
-                    <option key={c.id} value={c.id}>{c.title}</option>
-                  ))}
-                </select>
-              </div>
-              {enrollCourseId && (
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24}}>
-                  <div>
-                    <div style={{fontWeight:600,fontSize:14,marginBottom:12,color:'var(--navy)'}}>Inscrits ({enrolled.length})</div>
-                    {enrolled.length===0 ? <div style={{color:'var(--text-muted)',fontSize:13}}>Aucun étudiant.</div>
-                    : enrolled.map(s=>(
-                      <div key={s.id} className="card" style={{marginBottom:8}}>
-                        <div className="card-body" style={{display:'flex',alignItems:'center',gap:10}}>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:13,fontWeight:600,color:'var(--navy)'}}>{s.name}</div>
-                            <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.email}</div>
-                          </div>
-                          <button className="btn btn-danger btn-sm" onClick={()=>onUnenroll(s.id)}>Retirer</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div>
-                    <div style={{fontWeight:600,fontSize:14,marginBottom:12,color:'var(--navy)'}}>À inscrire ({availableForEnroll.length})</div>
-                    {availableForEnroll.length===0 ? <div style={{color:'var(--text-muted)',fontSize:13}}>Tous inscrits.</div>
-                    : availableForEnroll.map(s=>(
-                      <div key={s.id} className="card" style={{marginBottom:8}}>
-                        <div className="card-body" style={{display:'flex',alignItems:'center',gap:10}}>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:13,fontWeight:600,color:'var(--navy)'}}>{s.name}</div>
-                            <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.email}</div>
-                          </div>
-                          <button className="btn btn-primary btn-sm" onClick={()=>onEnroll(s.id)}>+ Inscrire</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {detailTab==='results' && <ResultsTab classId={classDetail.id}/>}
-        </>
-      )}
-    </div>
-  )
-}
 
 /* ══ UsersView ══ */
 function UsersView({ allUsers, onBack, onCreateUser, onEditUser, onToggleActive, onDeleteUser }) {
