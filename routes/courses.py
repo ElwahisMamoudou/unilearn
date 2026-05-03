@@ -22,33 +22,26 @@ class CategoryOut(BaseModel):
 class LessonOut(BaseModel):
     id: int
     title: str
-    content_type: str | None = None   # ✅ vrai nom du champ dans le modèle
-    duration_min: int | None = None   # ✅ vrai nom du champ
+    content_type: str | None = None
+    duration_min: int | None = None
     order: int
     description: str | None = None
-    file_url: str | None = None       # ✅ renommé file_path → file_url pour le frontend
+    file_url: str | None = None
     is_free: bool = False
     class Config:
         from_attributes = True
 
     @classmethod
     def from_orm_lesson(cls, lesson: "Lesson") -> "LessonOut":
-        """
-        Adapte le modèle ORM : mappe file_path → file_url
-        et gère les champs qui peuvent avoir des noms différents selon ta version du modèle.
-        """
-        # file_path ou video_url ou file_url — on prend le premier non-null
         file_url = (
             getattr(lesson, 'file_url',  None) or
             getattr(lesson, 'file_path', None) or
             getattr(lesson, 'video_url', None)
         )
-        # content_type ou type
         content_type = (
             getattr(lesson, 'content_type', None) or
             getattr(lesson, 'type', None)
         )
-        # duration_min ou duration (si duration est un int/str)
         duration_min = getattr(lesson, 'duration_min', None)
         if duration_min is None:
             raw = getattr(lesson, 'duration', None)
@@ -165,6 +158,7 @@ def my_courses(
 
 
 # ── GET /courses/:id ──────────────────────────────
+# CORRECTION : admin a toujours accès total
 
 @router.get("/{course_id}", response_model=CourseOut)
 def get_course(
@@ -175,23 +169,28 @@ def get_course(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if me.role == "teacher" and course.teacher_id != me.id:
-        raise HTTPException(403, "Ce cours ne vous est pas assigné")
-    if me.role == "student":
-        enrolled = db.query(Enrollment).filter_by(
-            student_id=me.id, course_id=course_id
-        ).first()
-        if not enrolled:
-            raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+
+    # Admin : accès total, toujours
+    if me.role == "admin":
+        return _enrich(course, me.id, db)
+
+    # Teacher : seulement ses propres cours
+    if me.role == "teacher":
+        if course.teacher_id != me.id:
+            raise HTTPException(403, "Ce cours ne vous est pas assigné")
+        return _enrich(course, me.id, db)
+
+    # Student : doit être inscrit
+    enrolled = db.query(Enrollment).filter_by(
+        student_id=me.id, course_id=course_id
+    ).first()
+    if not enrolled:
+        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+
     return _enrich(course, me.id, db)
 
 
 # ── GET /courses/:id/lessons ──────────────────────
-# ✅ CORRECTION PRINCIPALE :
-#    - Retourne file_url (mappé depuis file_path si nécessaire)
-#    - Admin voit toujours les leçons (pour ClassDetail / AdminDashboard)
-#    - Teacher voit ses propres cours
-#    - Student doit être inscrit
 
 @router.get("/{course_id}/lessons", response_model=List[LessonOut])
 def get_lessons(
@@ -203,16 +202,16 @@ def get_lessons(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    # ✅ Admin : accès total
+    # Admin : accès total
     if me.role == "admin":
         pass
 
-    # ✅ Teacher : seulement ses propres cours
+    # Teacher : seulement ses propres cours
     elif me.role == "teacher":
         if course.teacher_id != me.id:
             raise HTTPException(403, "Ce cours ne vous est pas assigné")
 
-    # ✅ Student : doit être inscrit au cours
+    # Student : doit être inscrit
     else:
         enrolled = db.query(Enrollment).filter_by(
             student_id=me.id, course_id=course_id
@@ -226,17 +225,32 @@ def get_lessons(
         .order_by(Lesson.order)
         .all()
     )
-
-    # ✅ Utiliser le mapper qui gère file_path → file_url
     return [LessonOut.from_orm_lesson(l) for l in lessons]
 
 
 # ── POST /courses/:id/enroll ──────────────────────
-# Désactivé — les inscriptions passent par l'admin
 
-@router.post("/{course_id}/enroll", status_code=403)
-def enroll_forbidden():
-    raise HTTPException(
-        403,
-        "Les inscriptions sont gérées par l'administrateur"
-    )
+@router.post("/{course_id}/enroll")
+def enroll(
+    course_id: int,
+    db: Session = Depends(get_db),
+    me: User    = Depends(get_current_user),
+):
+    if me.role != "student":
+        raise HTTPException(403, "Seuls les étudiants peuvent s'inscrire")
+
+    course = db.query(Course).filter(
+        Course.id == course_id, Course.is_published == True
+    ).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable ou non publié")
+
+    existing = db.query(Enrollment).filter_by(
+        student_id=me.id, course_id=course_id
+    ).first()
+    if existing:
+        raise HTTPException(400, "Vous êtes déjà inscrit à ce cours")
+
+    db.add(Enrollment(student_id=me.id, course_id=course_id))
+    db.commit()
+    return {"message": "Inscription réussie"}
