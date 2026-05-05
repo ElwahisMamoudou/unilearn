@@ -17,12 +17,26 @@ const LEVEL_COLORS = {
 }
 const lvlColor = l => LEVEL_COLORS[l] || '#6366f1'
 
+// ─────────────────────────────────────────────────────────────────
+// FIX #3 : useFlash — annulation du setTimeout au démontage
+// Évite la fuite mémoire et le warning "setState on unmounted component"
+// ─────────────────────────────────────────────────────────────────
 function useFlash() {
   const [msg, setMsg] = useState({ text: '', type: '' })
-  const flash = useCallback((text, type = 'success') => {
-    setMsg({ text, type })
-    setTimeout(() => setMsg({ text: '', type: '' }), 3500)
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    // Nettoyage à la destruction du composant
+    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [])
+
+  const flash = useCallback((text, type = 'success') => {
+    // On annule le précédent timer avant d'en créer un nouveau
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setMsg({ text, type })
+    timerRef.current = setTimeout(() => setMsg({ text: '', type: '' }), 3500)
+  }, [])
+
   return [msg, flash]
 }
 
@@ -41,15 +55,29 @@ function ThumbnailField({ courseId, currentUrl, onFile, onUploaded }) {
   const [dragOver,  setDragOver]  = useState(false)
   const inputRef = useRef()
 
-  useEffect(() => { if (currentUrl) setPreview(currentUrl) }, [currentUrl])
+  // ─────────────────────────────────────────────────────────────
+  // FIX #12 : on ne synchronise currentUrl → preview QUE si la
+  // valeur a réellement changé ET qu'il n'y a pas de preview locale
+  // en cours (base64). Sinon on écraserait l'aperçu immédiat.
+  // ─────────────────────────────────────────────────────────────
+  const prevCurrentUrlRef = useRef(currentUrl)
+  useEffect(() => {
+    if (currentUrl && currentUrl !== prevCurrentUrlRef.current) {
+      prevCurrentUrlRef.current = currentUrl
+      setPreview(currentUrl)
+    }
+  }, [currentUrl])
 
   const handle = async (file) => {
     if (!file) return
     if (!file.type.startsWith('image/')) return alert('Seulement les images (JPG, PNG, WEBP)')
     if (file.size > 5 * 1024 * 1024) return alert('Image trop volumineuse (max 5 MB)')
+
+    // Aperçu immédiat en base64 — NE SERA PAS écrasé par l'effet ci-dessus
     const reader = new FileReader()
     reader.onload = e => setPreview(e.target.result)
     reader.readAsDataURL(file)
+
     if (courseId) {
       setUploading(true)
       try {
@@ -181,7 +209,17 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  // ── Clic sur une classe → navigate vers ClassDetail.jsx ──
+  // ─────────────────────────────────────────────────────────────
+  // FIX #11 : useMemo pour éviter le recalcul à chaque render
+  // ─────────────────────────────────────────────────────────────
+  const filteredClasses = useMemo(() =>
+    classes.filter(c =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.code || '').toLowerCase().includes(search.toLowerCase())
+    ),
+    [classes, search]
+  )
+
   const openClass = useCallback((cls) => {
     navigate(`/classes/${cls.id}`)
   }, [navigate])
@@ -193,10 +231,17 @@ export default function AdminDashboard() {
     setYearModal(true)
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // FIX #14 : validation start_date < end_date
+  // FIX #6  : fermeture de la modale après saveYear réussi
+  // ─────────────────────────────────────────────────────────────
   const saveYear = async () => {
     if (!newYearForm.name.trim()) return flash('Le nom est requis', 'error')
     if (!newYearForm.start_date)  return flash('La date de debut est requise', 'error')
     if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
+    if (new Date(newYearForm.start_date) >= new Date(newYearForm.end_date)) {
+      return flash('La date de fin doit être après la date de début', 'error')
+    }
     setSavingYear(true)
     try {
       const payload = {
@@ -224,6 +269,8 @@ export default function AdminDashboard() {
       }
       setEditYear(null)
       setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
+      // FIX #6 : fermer la modale après succès
+      setYearModal(false)
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
     finally { setSavingYear(false) }
   }
@@ -243,10 +290,16 @@ export default function AdminDashboard() {
     flash(`"${yr.name}" definie comme annee courante`)
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // FIX #14 : validation des dates dans createYearInline aussi
+  // ─────────────────────────────────────────────────────────────
   const createYearInline = async () => {
     if (!newYearForm.name.trim()) return flash('Le nom est requis', 'error')
     if (!newYearForm.start_date)  return flash('La date de debut est requise', 'error')
     if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
+    if (new Date(newYearForm.start_date) >= new Date(newYearForm.end_date)) {
+      return flash('La date de fin doit être après la date de début', 'error')
+    }
     setSavingYear(true)
     try {
       const { data } = await api.post('/academic/years', {
@@ -349,7 +402,7 @@ export default function AdminDashboard() {
     catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
-  // ── Cours CRUD (depuis le modal, sans lien à une classe) ──
+  // ── Cours CRUD ──
   const openCreateCourse = () => {
     setEditCourse(null); setSavedCourseId(null); setPendingThumb(null)
     setCourseForm({ title: '', description: '', category_id: '', teacher_id: '', is_published: true })
@@ -399,11 +452,6 @@ export default function AdminDashboard() {
   const closeCourseModal = () => {
     setCourseModal(false); setSavedCourseId(null); setEditCourse(null); setPendingThumb(null)
   }
-
-  const filteredClasses = classes.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.code || '').toLowerCase().includes(search.toLowerCase())
-  )
 
   if (loading) return <div className="loading-overlay"><div className="spinner" /></div>
 
