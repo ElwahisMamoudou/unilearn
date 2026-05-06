@@ -52,6 +52,13 @@ export default function CourseDetail() {
   const [categories,    setCategories]    = useState([])
   const editThumbRef = useRef()
 
+  /* ── Modal création devoir ── */
+  const [hwModal,    setHwModal]    = useState(false)
+  const [hwForm,     setHwForm]     = useState({ title: '', description: '', due_date: '', max_score: 20, is_published: false })
+  const [hwFile,     setHwFile]     = useState(null)
+  const [hwDragOver, setHwDragOver] = useState(false)
+  const hwFileRef = useRef()
+
   /* ── Upload leçon ── */
   const [uploadModal, setUploadModal] = useState(false)
   const [lessonForm,  setLessonForm]  = useState({ title: '', duration: '', order: 0 })
@@ -272,6 +279,41 @@ export default function CourseDetail() {
     } catch (err) {
       flash(err.response?.data?.detail || 'Erreur', 'error')
     }
+  }
+
+  /* ── Créer un devoir ── */
+  const createHomework = async (e) => {
+    e.preventDefault()
+    if (!hwForm.title.trim()) return flash('Le titre est requis', 'error')
+    if (!hwForm.due_date)     return flash('La date limite est requise', 'error')
+    try {
+      const fd = new FormData()
+      fd.append('course_id',    id)
+      fd.append('title',        hwForm.title.trim())
+      fd.append('description',  hwForm.description || '')
+      fd.append('due_date',     new Date(hwForm.due_date).toISOString())
+      fd.append('max_score',    String(parseFloat(hwForm.max_score) || 20))
+      fd.append('is_published', String(hwForm.is_published))
+      if (hwFile) fd.append('file', hwFile)
+      await api.post('/homeworks', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      flash('Devoir créé !')
+      setHwModal(false)
+      setHwFile(null)
+      setHwForm({ title: '', description: '', due_date: '', max_score: 20, is_published: false })
+      setHomeworks([])
+      loadTab('homeworks')
+    } catch (err) {
+      const d = err.response?.data?.detail
+      flash(Array.isArray(d) ? d.map(x => x.msg).join(' | ') : d || 'Erreur', 'error')
+    }
+  }
+
+  const deleteHomework = async (hwId) => {
+    if (!confirm('Supprimer ce devoir ?')) return
+    await api.delete(`/homeworks/${hwId}`)
+    flash('Devoir supprimé')
+    setHomeworks([])
+    loadTab('homeworks')
   }
 
   /* ════════════════════════════════════════
@@ -593,8 +635,12 @@ export default function CourseDetail() {
         <div>
           {canManage && (
             <div style={{ marginBottom: 16 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => navigate('/homeworks')}>
-                Gérer les devoirs →
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                setHwForm({ title: '', description: '', due_date: '', max_score: 20, is_published: false })
+                setHwFile(null)
+                setHwModal(true)
+              }}>
+                + Créer un devoir
               </button>
             </div>
           )}
@@ -611,6 +657,7 @@ export default function CourseDetail() {
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                       📅 {due.toLocaleDateString('fr-FR')} · /{hw.max_score}
                       {late && <span style={{ color: '#ef4444', marginLeft: 8, fontWeight: 600 }}>⚠ Délai dépassé</span>}
+                      {canManage && <span style={{ marginLeft: 8 }}>· {hw.submission_count || 0} soumission(s)</span>}
                     </div>
                     {hw.has_file && (
                       <a href={`/api/homeworks/${hw.id}/file`} target="_blank" rel="noreferrer"
@@ -629,9 +676,18 @@ export default function CourseDetail() {
                   <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: hw.is_published ? '#d1fae5' : '#fef9c3', color: hw.is_published ? '#065f46' : '#854d0e' }}>
                     {hw.is_published ? 'Publié' : 'Brouillon'}
                   </span>
-                  <button className="btn btn-outline btn-sm" onClick={() => navigate(`/homeworks?course=${id}`)}>
-                    {isStudent ? 'Soumettre' : 'Voir soumissions'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {isStudent && (
+                      <button className="btn btn-outline btn-sm" onClick={() => navigate(`/homeworks?course=${id}`)}>
+                        Soumettre
+                      </button>
+                    )}
+                    {canManage && (
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteHomework(hw.id)}>
+                        Supprimer
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -957,6 +1013,90 @@ export default function CourseDetail() {
           </div>
         </div>
       )}
+      {/* ════════════════════════════════════════
+          MODAL CRÉER UN DEVOIR
+      ════════════════════════════════════════ */}
+      {hwModal && (
+        <div className="modal-overlay" onClick={() => { setHwModal(false); setHwFile(null) }}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Nouveau devoir — {course.title}</span>
+              <button className="modal-close" onClick={() => { setHwModal(false); setHwFile(null) }}>×</button>
+            </div>
+            <form onSubmit={createHomework}>
+              <div className="modal-body">
+                <div className="form-group">
+                  <label className="form-label">Titre *</label>
+                  <input className="form-input" required value={hwForm.title}
+                    onChange={e => setHwForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Ex : TP Série 1 — Cinématique" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Description / Consignes</label>
+                  <textarea className="form-input" rows={3} value={hwForm.description}
+                    onChange={e => setHwForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="Décrivez les attentes, le barème..." style={{ resize: 'vertical' }} />
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Date limite *</label>
+                    <input className="form-input" type="datetime-local" required value={hwForm.due_date}
+                      onChange={e => setHwForm(f => ({ ...f, due_date: e.target.value }))} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Note maximale</label>
+                    <input className="form-input" type="number" min={1} max={100} value={hwForm.max_score}
+                      onChange={e => setHwForm(f => ({ ...f, max_score: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">
+                    Fichier joint
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— optionnel (PDF, Word, ZIP…)</span>
+                  </label>
+                  <div
+                    style={{ border: `2px dashed ${hwFile ? 'var(--blue)' : 'var(--border)'}`, borderRadius: 10, padding: '16px', textAlign: 'center', cursor: 'pointer', background: hwDragOver ? '#eff6ff' : hwFile ? '#f0fdf4' : '#fafafa', transition: 'all .15s' }}
+                    onDragOver={e => { e.preventDefault(); setHwDragOver(true) }}
+                    onDragLeave={() => setHwDragOver(false)}
+                    onDrop={e => { e.preventDefault(); setHwDragOver(false); const f = e.dataTransfer.files[0]; if (f) setHwFile(f) }}
+                    onClick={() => hwFileRef.current.click()}
+                  >
+                    {hwFile ? (
+                      <>
+                        <div style={{ fontSize: 24, marginBottom: 4 }}>📎</div>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{hwFile.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{(hwFile.size/1024/1024).toFixed(2)} MB</div>
+                        <button type="button" onClick={e => { e.stopPropagation(); setHwFile(null) }}
+                          style={{ marginTop: 6, fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                          Supprimer
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 24, marginBottom: 4 }}>📁</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>Glisser-déposer ou cliquer</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>PDF, DOCX, ZIP, PNG — max 50 MB</div>
+                      </>
+                    )}
+                    <input ref={hwFileRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.png,.jpg,.jpeg,.pptx,.txt"
+                      style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) setHwFile(e.target.files[0]) }} />
+                  </div>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={hwForm.is_published}
+                    onChange={e => setHwForm(f => ({ ...f, is_published: e.target.checked }))} />
+                  Publier immédiatement (visible par les étudiants)
+                </label>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-outline" onClick={() => { setHwModal(false); setHwFile(null) }}>Annuler</button>
+                <button type="submit" className="btn btn-primary">Créer le devoir</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
