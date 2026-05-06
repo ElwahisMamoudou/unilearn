@@ -21,7 +21,6 @@ const TABS = [
   { key: 'sessions',  label: '🎥 Cours en ligne' },
 ]
 
-
 export default function CourseDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
@@ -325,14 +324,22 @@ export default function CourseDetail() {
         }} />
 
         <div style={{ position: 'relative', padding: '24px 28px', display: 'flex', flexDirection: 'column', minHeight: 200, justifyContent: 'space-between' }}>
-          {/* Bouton retour */}
-          <div style={{ display: 'flex', gap: 10 }}>
+          {/* Bouton retour + Modifier */}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
             <button
               onClick={() => navigate(-1)}
               style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)' }}
             >
               ← Retour
             </button>
+            {canManage && (
+              <button
+                onClick={openEdit}
+                style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                ✏️ Modifier
+              </button>
+            )}
           </div>
 
           {/* Titre + infos */}
@@ -521,6 +528,56 @@ export default function CourseDetail() {
                         Supprimer
                       </button>
                     )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════
+          ÉTUDIANTS
+      ════════════════════════════════════════ */}
+      {tab === 'students' && (
+        <div>
+          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600 }}>
+              {students.length} étudiant{students.length > 1 ? 's' : ''} inscrit{students.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          {students.length === 0 ? (
+            <div className="empty-state">
+              <h3>Aucun étudiant inscrit</h3>
+              <p>Les étudiants s'inscrivent via leur classe ou par l'administrateur.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+              {students.map(s => (
+                <div key={s.id} className="card">
+                  <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
+                      background: '#eff6ff', color: 'var(--blue)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 14,
+                    }}>
+                      {s.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.email}</div>
+                      {s.progress_pct !== undefined && (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ height: 4, background: '#f1f5f9', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${Math.round(s.progress_pct || 0)}%`, background: s.progress_pct === 100 ? '#22c55e' : '#3b82f6', borderRadius: 4 }} />
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>{Math.round(s.progress_pct || 0)}% complété</div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -781,6 +838,120 @@ export default function CourseDetail() {
               <div className="modal-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setSessionModal(false)}>Annuler</button>
                 <button type="submit" className="btn btn-primary">Créer la session</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* ════════════════════════════════════════
+          MODAL MODIFIER LE COURS
+      ════════════════════════════════════════ */}
+      {editModal && (
+        <div className="modal-overlay" onClick={() => setEditModal(false)}>
+          <div className="modal" style={{ maxWidth: 560, width: '95vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">✏️ Modifier le cours</span>
+              <button className="modal-close" onClick={() => setEditModal(false)}>×</button>
+            </div>
+            <form onSubmit={saveCourse}>
+              <div className="modal-body">
+
+                {/* Zone image */}
+                <div className="form-group">
+                  <label className="form-label">
+                    Image du cours
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— JPG · PNG · WEBP · max 5 MB</span>
+                  </label>
+                  <div
+                    onClick={() => editThumbRef.current.click()}
+                    style={{
+                      height: editThumbPrev ? 180 : 110, borderRadius: 12,
+                      border: `2px dashed ${editThumbPrev ? '#22c55e' : '#e2e8f0'}`,
+                      background: '#f8fafc', cursor: 'pointer',
+                      overflow: 'hidden', position: 'relative',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all .2s',
+                    }}
+                  >
+                    {editThumbPrev ? (
+                      <>
+                        <img src={editThumbPrev} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity .2s' }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                          onMouseLeave={e => e.currentTarget.style.opacity = 0}>
+                          <span style={{ color: '#fff', fontWeight: 700 }}>Changer l'image</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>Cliquer pour ajouter une image</div>
+                      </div>
+                    )}
+                    <input ref={editThumbRef} type="file" accept="image/*" style={{ display: 'none' }}
+                      onChange={e => {
+                        const f = e.target.files[0]
+                        if (!f) return
+                        setEditThumb(f)
+                        const r = new FileReader()
+                        r.onload = ev => setEditThumbPrev(ev.target.result)
+                        r.readAsDataURL(f)
+                      }} />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Titre *</label>
+                  <input className="form-input" required value={editForm.title}
+                    onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Titre du cours" />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Description</label>
+                  <textarea className="form-input" rows={3} value={editForm.description}
+                    onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                    style={{ resize: 'vertical' }} />
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Enseignant</label>
+                    <select className="form-select" value={editForm.teacher_id}
+                      onChange={e => setEditForm(f => ({ ...f, teacher_id: e.target.value }))}>
+                      <option value="">-- Choisir --</option>
+                      {allTeachers.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Catégorie</label>
+                    <select className="form-select" value={editForm.category_id}
+                      onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}>
+                      <option value="">Sans catégorie</option>
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Statut</label>
+                  <select className="form-select" value={String(editForm.is_published)}
+                    onChange={e => setEditForm(f => ({ ...f, is_published: e.target.value === 'true' }))}>
+                    <option value="true">Publié</option>
+                    <option value="false">Brouillon</option>
+                  </select>
+                </div>
+
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-outline" onClick={() => setEditModal(false)}>Annuler</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
               </div>
             </form>
           </div>
