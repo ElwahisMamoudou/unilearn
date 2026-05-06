@@ -3,6 +3,31 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
 
+const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
+const thumbUrl = path => {
+  if (!path) return null
+  if (path.startsWith('http')) return path
+  const clean = path.replace(/\\/g, '/').replace(/^\/+/, '')
+  return BACKEND ? `${BACKEND}/${clean}` : `/${clean}`
+}
+
+const CAT_GRADIENTS = [
+  ['#1e3a5f','#0ea5e9'],['#1a2e1a','#22c55e'],['#2e1a1a','#ef4444'],
+  ['#2e2a1a','#f59e0b'],['#1a1a2e','#8b5cf6'],['#1a2e2e','#14b8a6'],
+]
+const catGrad = (id) => CAT_GRADIENTS[(id||0) % CAT_GRADIENTS.length]
+const catIcon = (name='') => {
+  const l = name.toLowerCase()
+  if (l.includes('info')||l.includes('prog')||l.includes('algo')) return '💻'
+  if (l.includes('math')) return '📐'
+  if (l.includes('phys')) return '⚛️'
+  if (l.includes('chim')) return '🧪'
+  if (l.includes('bio')) return '🧬'
+  if (l.includes('meca')||l.includes('tim')) return '⚙️'
+  if (l.includes('elec')) return '⚡'
+  return '📚'
+}
+
 const TABS_ADMIN_TEACHER = ['overview', 'students', 'courses', 'forum', 'homeworks', 'exams', 'sessions']
 const TABS_STUDENT       = ['courses', 'forum', 'homeworks', 'exams', 'sessions']
 
@@ -69,7 +94,7 @@ export default function ClassDetail() {
   // ── Devoirs ──
   const [hwModal,    setHwModal]    = useState(false)
   const [hwForm,     setHwForm]     = useState({ title: '', description: '', due_date: '', max_score: 20, course_id: '', is_published: false })
-  const [hwFile,     setHwFile]     = useState(null)
+  const [hwFile,     setHwFile]     = useState(null)       // ← fichier joint optionnel
   const [hwDragOver, setHwDragOver] = useState(false)
   const hwFileRef = useRef()
 
@@ -77,6 +102,10 @@ export default function ClassDetail() {
   const [courseCreateModal, setCourseCreateModal] = useState(false)
   const [courseCreateForm,  setCourseCreateForm]  = useState({ title: '', description: '', teacher_id: '', category_id: '', is_published: true })
   const [categories, setCategories] = useState([])
+  const [courseCreatedId,  setCourseCreatedId]  = useState(null)
+  const [pendingThumb,     setPendingThumb]     = useState(null)
+  const [courseThumbPreview, setCourseThumbPreview] = useState(null)
+  const courseThumbRef = useRef()
 
   // ── Examens ──
   const [exModal, setExModal] = useState(false)
@@ -88,19 +117,13 @@ export default function ClassDetail() {
   const [exForm,    setExForm]    = useState(EMPTY_EX_FORM)
   const [questions, setQuestions] = useState([])
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #3 : flash avec timer annulable → pas de fuite mémoire
-  // ─────────────────────────────────────────────────────────────
-  const flashTimerRef = useRef(null)
-  useEffect(() => {
-    return () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current) }
-  }, [])
-  const flash = useCallback((text, type = 'success') => {
-    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+  // ── Flash ──────────────────────────────────────────────────────────────
+  const flash = (text, type = 'success') => {
     setMsg({ text, type })
-    flashTimerRef.current = setTimeout(() => setMsg({ text: '', type: '' }), 3500)
-  }, [])
+    setTimeout(() => setMsg({ text: '', type: '' }), 3500)
+  }
 
+  // ── Rechargement cours ─────────────────────────────────────────────────
   const reloadCourses = useCallback(async () => {
     try {
       const detail = await api.get(`/classes/${id}`)
@@ -108,9 +131,7 @@ export default function ClassDetail() {
     } catch {}
   }, [id])
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #1 : isAdmin et isStudent ajoutés aux dépendances
-  // ─────────────────────────────────────────────────────────────
+  // ── Init ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
       try {
@@ -148,83 +169,40 @@ export default function ClassDetail() {
       setLoading(false)
     }
     init()
-  }, [id, isAdmin, isStudent]) // FIX #1
+  }, [id])
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #2 + #8 + #10 : loadTab avec useCallback, Promise.all,
-  // et AbortController pour éviter les race conditions
-  // ─────────────────────────────────────────────────────────────
-  const loadTabAbortRef = useRef(null)
-
-  const loadTab = useCallback(async (t, force = false) => {
-    // Annuler la requête précédente si elle est encore en cours
-    if (loadTabAbortRef.current) loadTabAbortRef.current.abort()
-    const controller = new AbortController()
-    loadTabAbortRef.current = controller
-
-    try {
-      if (t === 'homeworks' && (homeworks.length === 0 || force) && courses.length > 0) {
-        // FIX #10 : Promise.all au lieu d'une boucle séquentielle
-        const results = await Promise.all(
-          courses.map(c =>
-            api.get(`/homeworks/course/${c.id}`, { signal: controller.signal })
-              .catch(() => ({ data: [] }))
-          )
-        )
-        if (!controller.signal.aborted) {
-          const all = results.flatMap((r, i) =>
-            r.data.map(h => ({ ...h, course_title: courses[i].title }))
-          )
-          setHomeworks(all)
-        }
+  // ── Chargement par onglet ──────────────────────────────────────────────
+  const loadTab = async (t, force = false) => {
+    if (t === 'homeworks' && (homeworks.length === 0 || force) && courses.length > 0) {
+      const all = []
+      for (const c of courses) {
+        const r = await api.get(`/homeworks/course/${c.id}`).catch(() => ({ data: [] }))
+        all.push(...r.data.map(h => ({ ...h, course_title: c.title })))
       }
-
-      if (t === 'exams' && (exams.length === 0 || force) && courses.length > 0) {
-        const results = await Promise.all(
-          courses.map(c =>
-            api.get(`/exams/course/${c.id}`, { signal: controller.signal })
-              .catch(() => ({ data: [] }))
-          )
-        )
-        if (!controller.signal.aborted) {
-          const all = results.flatMap((r, i) =>
-            r.data.map(e => ({ ...e, course_title: courses[i].title }))
-          )
-          setExams(all)
-        }
-      }
-
-      if (t === 'sessions' && (sessions.length === 0 || force) && courses.length > 0) {
-        const results = await Promise.all(
-          courses.map(c =>
-            api.get(`/sessions/course/${c.id}`, { signal: controller.signal })
-              .catch(() => ({ data: [] }))
-          )
-        )
-        if (!controller.signal.aborted) {
-          const all = results.flatMap((r, i) =>
-            r.data.map(s => ({ ...s, course_title: courses[i].title }))
-          )
-          setSessions(all)
-        }
-      }
-    } catch (err) {
-      // AbortError est normal, on ne log pas
-      if (err.name !== 'AbortError') console.error('loadTab error:', err)
+      setHomeworks(all)
     }
-  }, [courses, homeworks.length, exams.length, sessions.length])
+    if (t === 'exams' && (exams.length === 0 || force) && courses.length > 0) {
+      const all = []
+      for (const c of courses) {
+        const r = await api.get(`/exams/course/${c.id}`).catch(() => ({ data: [] }))
+        all.push(...r.data.map(e => ({ ...e, course_title: c.title })))
+      }
+      setExams(all)
+    }
+    if (t === 'sessions' && (sessions.length === 0 || force) && courses.length > 0) {
+      const all = []
+      for (const c of courses) {
+        const r = await api.get(`/sessions/course/${c.id}`).catch(() => ({ data: [] }))
+        all.push(...r.data.map(s => ({ ...s, course_title: c.title })))
+      }
+      setSessions(all)
+    }
+  }
 
-  const switchTab = useCallback((t) => {
-    setTab(t)
-    loadTab(t)
-  }, [loadTab])
+  const switchTab = (t) => { setTab(t); loadTab(t) }
+  useEffect(() => { if (courses.length > 0) loadTab(tab) }, [courses])
 
-  // FIX #2 : dépendances correctes, plus de boucle infinie
-  useEffect(() => {
-    if (courses.length > 0) loadTab(tab)
-  }, [courses, tab, loadTab])
-
-  // ── Actions leçons ──
+  // ── Actions leçons ─────────────────────────────────────────────────────
   const openCourse = async (c) => {
     if (selCourse?.id === c.id) { setSelCourse(null); return }
     const r = await api.get(`/courses/${c.id}/lessons`)
@@ -257,22 +235,15 @@ export default function ClassDetail() {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #7 : deleteLesson avec try/catch
-  // ─────────────────────────────────────────────────────────────
   const deleteLesson = async (lessonId) => {
     if (!confirm('Supprimer cette lecon ?')) return
-    try {
-      await api.delete(`/lessons/${lessonId}`)
-      flash('Lecon supprimee')
-      const r = await api.get(`/courses/${selCourse.id}/lessons`)
-      setLessons(r.data)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur suppression lecon', 'error')
-    }
+    await api.delete(`/lessons/${lessonId}`)
+    flash('Lecon supprimee')
+    const r = await api.get(`/courses/${selCourse.id}/lessons`)
+    setLessons(r.data)
   }
 
-  // ── Actions sessions ──
+  // ── Actions sessions ───────────────────────────────────────────────────
   const createSession = async (e) => {
     e.preventDefault()
     try {
@@ -291,34 +262,11 @@ export default function ClassDetail() {
     }
   }
 
-  const startSession  = async (s) => {
-    try {
-      await api.post(`/sessions/${s.id}/start`)
-      flash('Session demarree !')
-      setSessions([])
-      loadTab('sessions', true)
-      navigate(`/room/${s.room_id}`)
-    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
-  }
-  const endSession    = async (s) => {
-    try {
-      await api.post(`/sessions/${s.id}/end`)
-      flash('Session terminee')
-      setSessions([])
-      loadTab('sessions', true)
-    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
-  }
-  const deleteSession = async (s) => {
-    if (!confirm('Supprimer cette session ?')) return
-    try {
-      await api.delete(`/sessions/${s.id}`)
-      flash('Session supprimee')
-      setSessions([])
-      loadTab('sessions', true)
-    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
-  }
+  const startSession  = async (s) => { await api.post(`/sessions/${s.id}/start`); flash('Session demarree !'); setSessions([]); loadTab('sessions', true); navigate(`/room/${s.room_id}`) }
+  const endSession    = async (s) => { await api.post(`/sessions/${s.id}/end`); flash('Session terminee'); setSessions([]); loadTab('sessions', true) }
+  const deleteSession = async (s) => { if (!confirm('Supprimer cette session ?')) return; await api.delete(`/sessions/${s.id}`); flash('Session supprimee'); setSessions([]); loadTab('sessions', true) }
 
-  // ── Création devoir ──
+  // ── Création devoir avec fichier joint optionnel ───────────────────────
   const createHomework = async (e) => {
     e.preventDefault()
     if (!hwForm.course_id) return flash('Selectionnez un cours', 'error')
@@ -326,6 +274,8 @@ export default function ClassDetail() {
     if (!hwForm.due_date) return flash('La date limite est requise', 'error')
 
     try {
+      // FormData obligatoire car on peut avoir un fichier joint.
+      // FastAPI reçoit les champs via Form(...) et le fichier via File(None).
       const fd = new FormData()
       fd.append('course_id',    hwForm.course_id)
       fd.append('title',        hwForm.title.trim())
@@ -351,23 +301,19 @@ export default function ClassDetail() {
 
   const deleteHomework = async (hwId) => {
     if (!confirm('Supprimer ce devoir ?')) return
-    try {
-      await api.delete(`/homeworks/${hwId}`)
-      flash('Devoir supprime')
-      setHomeworks([])
-      loadTab('homeworks', true)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur suppression', 'error')
-    }
+    await api.delete(`/homeworks/${hwId}`)
+    flash('Devoir supprime')
+    setHomeworks([])
+    loadTab('homeworks', true)
   }
 
-  // ── Création cours pour la classe ──
+  // ── Création cours pour la classe ──────────────────────────────────────
   const createCourseForClass = async (e) => {
     e.preventDefault()
     if (!courseCreateForm.title.trim()) return flash('Le titre est requis', 'error')
     if (!courseCreateForm.teacher_id)   return flash('Selectionnez un enseignant', 'error')
     try {
-      await api.post('/admin/courses', {
+      const { data: newCourse } = await api.post('/admin/courses', {
         title:        courseCreateForm.title,
         description:  courseCreateForm.description || null,
         teacher_id:   parseInt(courseCreateForm.teacher_id),
@@ -375,8 +321,19 @@ export default function ClassDetail() {
         is_published: courseCreateForm.is_published,
         class_id:     parseInt(id),
       })
+      // Upload thumbnail si présent
+      if (pendingThumb instanceof File) {
+        try {
+          const fd = new FormData()
+          fd.append('file', pendingThumb)
+          await api.post(`/admin/courses/${newCourse.id}/thumbnail`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+        } catch {}
+      }
       flash('Cours cree et associe a la classe !')
       setCourseCreateModal(false)
+      setCourseCreatedId(null)
+      setPendingThumb(null)
+      setCourseThumbPreview(null)
       const [acr, detail] = await Promise.all([api.get('/admin/courses'), api.get(`/classes/${id}`)])
       setAllCourses(acr.data)
       if (detail.data.courses) {
@@ -389,7 +346,7 @@ export default function ClassDetail() {
     }
   }
 
-  // ── Questions d'examen ──
+  // ── Questions d'examen ─────────────────────────────────────────────────
   const EMPTY_QUESTION = (type = 'mcq') => {
     const base = { type, text: '', points: 1, explanation: '', answer: '' }
     if (type === 'mcq')       return { ...base, choices: ['', '', '', ''], answer: '0' }
@@ -414,7 +371,7 @@ export default function ClassDetail() {
   const addChoice    = (qi) => setQuestions(q => { const a = [...q]; const isMatch = a[qi].type === 'match'; a[qi].choices = [...(a[qi].choices || []), isMatch ? { left: '', right: '' } : '']; return a })
   const removeChoice = (qi, ci) => setQuestions(q => { const a = [...q]; a[qi].choices = a[qi].choices.filter((_, j) => j !== ci); return a })
 
-  // ── Création examen ──
+  // ── Création examen ────────────────────────────────────────────────────
   const createExam = async (e) => {
     e.preventDefault()
     if (!exForm.course_id)      return flash('Selectionnez un cours', 'error')
@@ -455,17 +412,13 @@ export default function ClassDetail() {
 
   const deleteExam = async (exId) => {
     if (!confirm('Supprimer cet examen ?')) return
-    try {
-      await api.delete(`/exams/${exId}`)
-      flash('Examen supprime')
-      setExams([])
-      loadTab('exams', true)
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur suppression', 'error')
-    }
+    await api.delete(`/exams/${exId}`)
+    flash('Examen supprime')
+    setExams([])
+    loadTab('exams', true)
   }
 
-  // ── Actions étudiants ──
+  // ── Actions étudiants ──────────────────────────────────────────────────
   const enrollToCourse = async (courseId) => {
     try {
       const r = await api.post(`/classes/${id}/enroll-course/${courseId}`)
@@ -483,12 +436,10 @@ export default function ClassDetail() {
   }
 
   const removeStudent = async (sid) => {
-    try {
-      await api.delete(`/classes/${id}/students/${sid}`)
-      flash('Etudiant retire')
-      const r = await api.get(`/classes/${id}/students`)
-      setStudents(r.data)
-    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
+    await api.delete(`/classes/${id}/students/${sid}`)
+    flash('Etudiant retire')
+    const r = await api.get(`/classes/${id}/students`)
+    setStudents(r.data)
   }
 
   const setMatricule = async (sid, current) => {
@@ -502,11 +453,7 @@ export default function ClassDetail() {
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #4 : ref React au lieu de document.getElementById
-  // ─────────────────────────────────────────────────────────────
-  const courseSelRef = useRef()
-
+  // ── Garde ──────────────────────────────────────────────────────────────
   if (loading) return <div className="loading-overlay"><div className="spinner" /></div>
   if (!cls)    return <div className="loading-overlay">Classe introuvable</div>
 
@@ -555,7 +502,9 @@ export default function ClassDetail() {
         ))}
       </div>
 
-      {/* OVERVIEW */}
+      {/* ════════════════════════════════════════════════
+          OVERVIEW
+      ════════════════════════════════════════════════ */}
       {tab === 'overview' && (
         <div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
@@ -589,7 +538,9 @@ export default function ClassDetail() {
         </div>
       )}
 
-      {/* STUDENTS */}
+      {/* ════════════════════════════════════════════════
+          STUDENTS
+      ════════════════════════════════════════════════ */}
       {tab === 'students' && (
         <div style={{ display: 'grid', gridTemplateColumns: isAdmin ? '1fr 1fr' : '1fr', gap: 24 }}>
           <div>
@@ -640,7 +591,9 @@ export default function ClassDetail() {
         </div>
       )}
 
-      {/* COURSES */}
+      {/* ════════════════════════════════════════════════
+          COURSES
+      ════════════════════════════════════════════════ */}
       {tab === 'courses' && (
         <div>
           {isAdmin && (
@@ -651,82 +604,142 @@ export default function ClassDetail() {
               }}>
                 + Creer un cours pour cette classe
               </button>
-              {/* FIX #4 : ref au lieu de getElementById */}
               <div style={{ flex: 1, minWidth: 260, display: 'flex', gap: 8, padding: '10px 14px', background: '#f8fafc', borderRadius: 10, border: '1px solid var(--border)', alignItems: 'center' }}>
-                <select ref={courseSelRef} className="form-select" style={{ flex: 1 }}>
+                <select className="form-select" style={{ flex: 1 }} id="course-sel">
                   <option value="">-- Associer un cours existant --</option>
                   {allCourses.map(c => <option key={c.id} value={c.id}>{c.title} ({c.teacher_name})</option>)}
                 </select>
-                <button className="btn btn-outline btn-sm" onClick={() => {
-                  const v = courseSelRef.current?.value
-                  if (v) enrollToCourse(v)
-                }}>Inscrire la classe</button>
+                <button className="btn btn-outline btn-sm" onClick={() => { const v = document.getElementById('course-sel').value; if (v) enrollToCourse(v) }}>Inscrire la classe</button>
               </div>
             </div>
           )}
 
-          {courses.length === 0
-            ? <div className="empty-state"><h3>Aucun cours</h3><p>Creez le premier cours pour cette classe.</p></div>
-            : courses.map(c => (
-              <div key={c.id}>
-                <div className="card" style={{ marginBottom: selCourse?.id === c.id ? 0 : 10, borderBottomLeftRadius: selCourse?.id === c.id ? 0 : undefined, borderBottomRightRadius: selCourse?.id === c.id ? 0 : undefined }}>
-                  <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openCourse(c)}>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{c.title}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                        Enseignant : {c.teacher_name} · {c.lesson_count} lecon(s)
-                        {isStudent && ` · ${c.progress_pct}% termine`}
+          {courses.length === 0 ? (
+            <div className="empty-state"><h3>Aucun cours</h3><p>Creez le premier cours pour cette classe.</p></div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+              {courses.map(c => {
+                const thumb = thumbUrl(c.thumbnail)
+                const [g0, g1] = catGrad(c.category_id || c.id)
+                const icon = catIcon(c.category_name || c.title)
+                const pct = Math.round(c.progress_pct || 0)
+                const expanded = selCourse?.id === c.id
+                return (
+                  <div key={c.id} style={{
+                    borderRadius: 18, overflow: 'hidden',
+                    border: expanded ? '2px solid var(--blue)' : '1px solid var(--border)',
+                    background: '#fff',
+                    boxShadow: expanded ? '0 8px 32px rgba(59,130,246,.15)' : '0 4px 16px rgba(15,31,61,.06)',
+                    transition: 'all .22s cubic-bezier(.175,.885,.32,1.275)',
+                    display: 'flex', flexDirection: 'column',
+                  }}
+                    onMouseEnter={e => { if (!expanded) { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(59,130,246,.14)' } }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = expanded ? '0 8px 32px rgba(59,130,246,.15)' : '0 4px 16px rgba(15,31,61,.06)' }}
+                  >
+                    {/* ── IMAGE / ICÔNE ── */}
+                    <div style={{ height: 200, position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{
+                        position: 'absolute', inset: 0,
+                        background: thumb ? `url(${thumb}) center/cover no-repeat` : `linear-gradient(145deg, ${g0} 0%, ${g1} 100%)`,
+                        transition: 'transform .4s ease',
+                      }} />
+                      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 55%)' }} />
+                      {!thumb && (
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 70, filter: 'drop-shadow(0 4px 12px rgba(0,0,0,.3))' }}>
+                          {icon}
+                        </div>
+                      )}
+                      {/* Badge publié */}
+                      <div style={{ position: 'absolute', top: 12, right: 12, background: c.is_published ? 'rgba(34,197,94,.9)' : 'rgba(245,158,11,.9)', color: '#fff', fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 20 }}>
+                        {c.is_published ? '✓ PUBLIÉ' : '✏ BROUILLON'}
+                      </div>
+                      {/* Titre sur image */}
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 16px' }}>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', textShadow: '0 2px 8px rgba(0,0,0,.5)', lineHeight: 1.3 }}>{c.title}</div>
+                      </div>
+                      {/* Barre progression */}
+                      {isStudent && pct > 0 && (
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: 'rgba(255,255,255,.2)' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? '#22c55e' : '#3b82f6', transition: 'width .6s' }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── INFOS ── */}
+                    <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
+                        <span>👨‍🏫 {c.teacher_name || 'Non assigné'}</span>
+                        <span>📖 {c.lesson_count || 0} leçon(s)</span>
+                        {isStudent && <span style={{ color: pct === 100 ? '#22c55e' : 'var(--blue)' }}>{pct}%</span>}
+                      </div>
+
+                      {/* ── ACTIONS ── */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                        <button className="btn btn-primary btn-sm" style={{ flex: 1 }}
+                          onClick={() => navigate(`/courses/${c.id}`)}>
+                          Voir →
+                        </button>
+                        <button className="btn btn-outline btn-sm"
+                          onClick={() => openCourse(c)}>
+                          {expanded ? 'Fermer' : 'Leçons'}
+                        </button>
+                        {canManage && (
+                          <button className="btn btn-outline btn-sm"
+                            onClick={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count }); setLessonFile(null); setUploadModal(true); openCourse(c) }}>
+                            + Leçon
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, background: c.is_published ? '#d1fae5' : '#fef9c3', color: c.is_published ? '#065f46' : '#854d0e' }}>
-                      {c.is_published ? 'Publie' : 'Brouillon'}
-                    </span>
-                    {canManage && (
-                      <button className="btn btn-primary btn-sm" onClick={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count }); setLessonFile(null); setUploadModal(true); openCourse(c) }}>
-                        Ajouter une lecon
-                      </button>
-                    )}
-                    <button className="btn btn-outline btn-sm" onClick={() => openCourse(c)}>
-                      {selCourse?.id === c.id ? 'Fermer' : 'Lecons'}
-                    </button>
-                  </div>
-                </div>
 
-                {selCourse?.id === c.id && (
-                  <div style={{ border: '1px solid var(--border)', borderTop: 'none', borderBottomLeftRadius: 12, borderBottomRightRadius: 12, padding: '12px 16px', background: '#fafafa', marginBottom: 10 }}>
-                    {lessons.length === 0
-                      ? <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>Aucune lecon.</div>
-                      : lessons.map((l, i) => (
-                        <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                          <div style={{ width: 26, height: 26, borderRadius: 6, background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7', color: l.type === 'pdf' ? 'var(--blue)' : 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>{l.title}</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.type === 'pdf' ? 'PDF' : 'Video'}{l.duration ? ` · ${l.duration}` : ''}</div>
+                    {/* ── LEÇONS EXPANDÉES ── */}
+                    {expanded && (
+                      <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', background: '#f8fafc' }}>
+                        {lessons.length === 0 ? (
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>Aucune leçon.</div>
+                        ) : lessons.map((l, i) => (
+                          <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lessons.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                            <div style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7', color: l.type === 'pdf' ? '#1d4ed8' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
+                              {l.type === 'pdf' ? '📄' : '🎬'}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.title}</div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{l.type === 'pdf' ? 'PDF' : 'Vidéo'}{l.duration ? ` · ${l.duration}` : ''}</div>
+                            </div>
+                            {l.file_path && (
+                              <button className="btn btn-outline btn-sm" style={{ fontSize: 10, padding: '2px 8px' }} onClick={() => navigate(`/lesson/${l.id}`)}>
+                                Ouvrir
+                              </button>
+                            )}
+                            {canManage && (
+                              <button className="btn btn-danger btn-sm" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => deleteLesson(l.id)}>×</button>
+                            )}
                           </div>
-                          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: l.file_path ? '#dcfce7' : '#fee2e2', color: l.file_path ? '#065f46' : '#991b1b' }}>
-                            {l.file_path ? 'Fichier OK' : 'Manquant'}
-                          </span>
-                          {isStudent && l.file_path && (
-                            <button className="btn btn-outline btn-sm" onClick={() => navigate(`/lesson/${l.id}`)}>Ouvrir</button>
-                          )}
-                          {canManage && (
-                            <button className="btn btn-danger btn-sm" onClick={() => deleteLesson(l.id)}>Supprimer</button>
-                          )}
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* FORUM */}
+      {/* ════════════════════════════════════════════════
+          FORUM
+      ════════════════════════════════════════════════ */}
       {tab === 'forum' && (
-        <ForumTab courses={courses} user={user} canPost={canManage || isStudent} />
+        <ForumTab
+          courses={courses}
+          user={user}
+          canPost={canManage || isStudent}
+        />
       )}
 
-      {/* HOMEWORKS */}
+      {/* ════════════════════════════════════════════════
+          HOMEWORKS
+      ════════════════════════════════════════════════ */}
       {tab === 'homeworks' && (
         <div>
           {canManage && courses.length > 0 && (
@@ -755,11 +768,16 @@ export default function ClassDetail() {
                         {late && <span style={{ color: '#ef4444', marginLeft: 8, fontWeight: 600 }}>Delai depasse</span>}
                         {canManage && <span style={{ marginLeft: 8 }}>· {hw.submission_count || 0} soumission(s)</span>}
                       </div>
+                      {/* Indicateur fichier joint */}
                       {hw.has_file && (
                         <div style={{ marginTop: 4 }}>
-                          <a href={`/api/homeworks/${hw.id}/file`} target="_blank" rel="noreferrer"
-                            style={{ fontSize: 11, color: 'var(--blue)', textDecoration: 'none' }}>
-                            📎 Fichier joint — telecharger
+                          <a
+                            href={`/api/homeworks/${hw.id}/file`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: 11, color: 'var(--blue)', textDecoration: 'none' }}
+                          >
+                            📎 Fichier joint — télécharger
                           </a>
                         </div>
                       )}
@@ -787,7 +805,9 @@ export default function ClassDetail() {
         </div>
       )}
 
-      {/* EXAMS */}
+      {/* ════════════════════════════════════════════════
+          EXAMS
+      ════════════════════════════════════════════════ */}
       {tab === 'exams' && (
         <div>
           {canManage && courses.length > 0 && (
@@ -824,7 +844,9 @@ export default function ClassDetail() {
         </div>
       )}
 
-      {/* SESSIONS */}
+      {/* ════════════════════════════════════════════════
+          SESSIONS
+      ════════════════════════════════════════════════ */}
       {tab === 'sessions' && (
         <div>
           {canManage && courses.length > 0 && (
@@ -863,6 +885,10 @@ export default function ClassDetail() {
             ))}
         </div>
       )}
+
+      {/* ════════════════════════════════════════════════════════
+          MODALS
+      ════════════════════════════════════════════════════════ */}
 
       {/* ── Modal upload leçon ── */}
       {uploadModal && (
@@ -957,7 +983,7 @@ export default function ClassDetail() {
         </div>
       )}
 
-      {/* ── Modal devoir ── */}
+      {/* ── Modal devoir (AVEC upload fichier joint) ── */}
       {hwModal && (
         <div className="modal-overlay" onClick={() => { setHwModal(false); setHwFile(null) }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -967,6 +993,8 @@ export default function ClassDetail() {
             </div>
             <form onSubmit={createHomework}>
               <div className="modal-body">
+
+                {/* Cours */}
                 <div className="form-group">
                   <label className="form-label">Cours *</label>
                   <select className="form-select" required value={hwForm.course_id} onChange={e => setHwForm({ ...hwForm, course_id: e.target.value })}>
@@ -974,14 +1002,20 @@ export default function ClassDetail() {
                     {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 </div>
+
+                {/* Titre */}
                 <div className="form-group">
                   <label className="form-label">Titre *</label>
                   <input className="form-input" required value={hwForm.title} onChange={e => setHwForm({ ...hwForm, title: e.target.value })} placeholder="Ex : TP Cinematique — Serie 3" />
                 </div>
+
+                {/* Description */}
                 <div className="form-group">
                   <label className="form-label">Description / Consignes</label>
-                  <textarea className="form-input" rows={3} value={hwForm.description} onChange={e => setHwForm({ ...hwForm, description: e.target.value })} style={{ resize: 'vertical' }} />
+                  <textarea className="form-input" rows={3} value={hwForm.description} onChange={e => setHwForm({ ...hwForm, description: e.target.value })} placeholder="Decrivez les attentes, le bareme, les consignes..." style={{ resize: 'vertical' }} />
                 </div>
+
+                {/* Date + note max */}
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Date limite *</label>
@@ -992,13 +1026,21 @@ export default function ClassDetail() {
                     <input className="form-input" type="number" min={1} max={100} value={hwForm.max_score} onChange={e => setHwForm({ ...hwForm, max_score: e.target.value })} />
                   </div>
                 </div>
+
+                {/* ── Zone upload fichier joint ── */}
                 <div className="form-group">
                   <label className="form-label">
                     Fichier joint
-                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— optionnel</span>
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— optionnel (PDF, Word, ZIP, image…)</span>
                   </label>
                   <div
-                    style={{ border: `2px dashed ${hwFile ? 'var(--blue)' : 'var(--border)'}`, borderRadius: 10, padding: '18px 16px', textAlign: 'center', cursor: 'pointer', background: hwDragOver ? '#eff6ff' : hwFile ? '#f0fdf4' : '#fafafa', transition: 'all 0.15s ease' }}
+                    style={{
+                      border: `2px dashed ${hwFile ? 'var(--blue)' : 'var(--border)'}`,
+                      borderRadius: 10, padding: '18px 16px', textAlign: 'center',
+                      cursor: 'pointer',
+                      background: hwDragOver ? '#eff6ff' : hwFile ? '#f0fdf4' : '#fafafa',
+                      transition: 'all 0.15s ease',
+                    }}
                     onDragOver={e => { e.preventDefault(); setHwDragOver(true) }}
                     onDragLeave={() => setHwDragOver(false)}
                     onDrop={e => { e.preventDefault(); setHwDragOver(false); const f = e.dataTransfer.files[0]; if (f) setHwFile(f) }}
@@ -1007,25 +1049,37 @@ export default function ClassDetail() {
                     {hwFile ? (
                       <>
                         <div style={{ fontSize: 28, marginBottom: 6 }}>📎</div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{hwFile.name}</div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--navy)' }}>{hwFile.name}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{(hwFile.size / 1024 / 1024).toFixed(2)} MB</div>
-                        <button type="button" onClick={e => { e.stopPropagation(); setHwFile(null) }} style={{ marginTop: 8, fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setHwFile(null) }}
+                          style={{ marginTop: 8, fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
                           Supprimer le fichier
                         </button>
                       </>
                     ) : (
                       <>
                         <div style={{ fontSize: 28, marginBottom: 6 }}>📁</div>
-                        <div style={{ fontWeight: 500, fontSize: 13 }}>Glisser-deposer ou cliquer</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>PDF, DOCX, ZIP, PNG… max 50 MB</div>
+                        <div style={{ fontWeight: 500, fontSize: 13, color: 'var(--navy)' }}>Glisser-deposer ou cliquer pour joindre un fichier</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>PDF, DOCX, XLSX, ZIP, PNG, JPG — max 50 MB</div>
                       </>
                     )}
-                    <input ref={hwFileRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.png,.jpg,.jpeg,.pptx,.txt,.csv" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) setHwFile(e.target.files[0]) }} />
+                    <input
+                      ref={hwFileRef}
+                      type="file"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.png,.jpg,.jpeg,.pptx,.txt,.csv"
+                      style={{ display: 'none' }}
+                      onChange={e => { if (e.target.files[0]) setHwFile(e.target.files[0]) }}
+                    />
                   </div>
                 </div>
+
+                {/* Publier */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
                   <input type="checkbox" checked={hwForm.is_published} onChange={e => setHwForm({ ...hwForm, is_published: e.target.checked })} />
-                  Publier immediatement
+                  Publier immediatement (visible par les etudiants)
                 </label>
               </div>
               <div className="modal-footer">
@@ -1039,14 +1093,60 @@ export default function ClassDetail() {
 
       {/* ── Modal création cours ── */}
       {courseCreateModal && (
-        <div className="modal-overlay" onClick={() => setCourseCreateModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => { setCourseCreateModal(false); setPendingThumb(null); setCourseThumbPreview(null) }}>
+          <div className="modal" style={{ maxWidth: 560, width: '95vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">Nouveau cours — {cls.name}</span>
-              <button className="modal-close" onClick={() => setCourseCreateModal(false)}>×</button>
+              <button className="modal-close" onClick={() => { setCourseCreateModal(false); setPendingThumb(null); setCourseThumbPreview(null) }}>×</button>
             </div>
             <form onSubmit={createCourseForClass}>
               <div className="modal-body">
+
+                {/* ── Zone image ── */}
+                <div className="form-group">
+                  <label className="form-label">
+                    Image du cours
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— JPG · PNG · WEBP · max 5 MB</span>
+                  </label>
+                  <div
+                    onClick={() => courseThumbRef.current.click()}
+                    style={{
+                      height: courseThumbPreview ? 180 : 110, borderRadius: 12,
+                      border: `2px dashed ${courseThumbPreview ? '#22c55e' : '#e2e8f0'}`,
+                      background: courseThumbPreview ? '#f0fdf4' : '#f8fafc',
+                      cursor: 'pointer', overflow: 'hidden', position: 'relative',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all .2s',
+                    }}
+                  >
+                    {courseThumbPreview ? (
+                      <>
+                        <img src={courseThumbPreview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity .2s' }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                          onMouseLeave={e => e.currentTarget.style.opacity = 0}>
+                          <span style={{ color: '#fff', fontWeight: 700 }}>Changer</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>Cliquer pour ajouter une image</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Affichée en grande icône sur les cartes de cours</div>
+                      </div>
+                    )}
+                    <input ref={courseThumbRef} type="file" accept="image/*" style={{ display: 'none' }}
+                      onChange={e => {
+                        const f = e.target.files[0]
+                        if (!f) return
+                        setPendingThumb(f)
+                        const r = new FileReader()
+                        r.onload = ev => setCourseThumbPreview(ev.target.result)
+                        r.readAsDataURL(f)
+                      }} />
+                  </div>
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Titre *</label>
                   <input className="form-input" required value={courseCreateForm.title} onChange={e => setCourseCreateForm(f => ({ ...f, title: e.target.value }))} placeholder="Ex : Introduction aux reseaux" />
@@ -1082,7 +1182,7 @@ export default function ClassDetail() {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setCourseCreateModal(false)}>Annuler</button>
+                <button type="button" className="btn btn-outline" onClick={() => { setCourseCreateModal(false); setPendingThumb(null); setCourseThumbPreview(null) }}>Annuler</button>
                 <button type="submit" className="btn btn-primary">Creer le cours</button>
               </div>
             </form>
@@ -1100,6 +1200,8 @@ export default function ClassDetail() {
             </div>
             <form onSubmit={createExam}>
               <div className="modal-body">
+                <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: 13, marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>Informations generales</div>
+
                 <div className="form-group">
                   <label className="form-label">Cours *</label>
                   <select className="form-select" required value={exForm.course_id} onChange={e => setExForm(f => ({ ...f, course_id: e.target.value }))}>
@@ -1138,6 +1240,8 @@ export default function ClassDetail() {
                     <input className="form-input" type="datetime-local" value={exForm.ends_at} onChange={e => setExForm(f => ({ ...f, ends_at: e.target.value }))} />
                   </div>
                 </div>
+
+                <div style={{ fontWeight: 700, color: 'var(--navy)', fontSize: 13, margin: '16px 0 10px', paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>Parametres avances</div>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Tentatives autorisees</label>
@@ -1175,11 +1279,13 @@ export default function ClassDetail() {
                       ))}
                     </div>
                   </div>
+
                   {questions.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '24px', border: '2px dashed var(--border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: 14 }}>
                       Cliquez sur un type de question ci-dessus pour ajouter.
                     </div>
                   )}
+
                   {questions.map((q, i) => (
                     <div key={i} className="card" style={{ marginBottom: 14, border: '1px solid var(--border)' }}>
                       <div className="card-body">
@@ -1194,6 +1300,7 @@ export default function ClassDetail() {
                           <input className="form-input" style={{ width: 72, flexShrink: 0, textAlign: 'center' }} type="number" min={0.5} step={0.5} value={q.points} onChange={e => updateQ(i, 'points', parseFloat(e.target.value))} title="Points" />
                           <button type="button" className="btn btn-danger btn-sm" onClick={() => removeQ(i)}>×</button>
                         </div>
+
                         {q.type === 'mcq' && (
                           <div style={{ marginBottom: 8 }}>
                             {(q.choices || []).map((c, ci) => (
@@ -1206,6 +1313,7 @@ export default function ClassDetail() {
                             <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 4 }} onClick={() => addChoice(i)}>+ Choix</button>
                           </div>
                         )}
+
                         {q.type === 'mcq_multi' && (
                           <div style={{ marginBottom: 8 }}>
                             {(q.choices || []).map((c, ci) => {
@@ -1221,6 +1329,7 @@ export default function ClassDetail() {
                             <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 4 }} onClick={() => addChoice(i)}>+ Choix</button>
                           </div>
                         )}
+
                         {q.type === 'truefalse' && (
                           <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
                             {[['true', 'Vrai'], ['false', 'Faux']].map(([v, label]) => (
@@ -1231,12 +1340,14 @@ export default function ClassDetail() {
                             ))}
                           </div>
                         )}
+
                         {q.type === 'short' && (
                           <div style={{ marginBottom: 8 }}>
                             <label className="form-label" style={{ fontSize: 12 }}>Reponse attendue exacte</label>
                             <input className="form-input" value={q.answer || ''} onChange={e => updateQ(i, 'answer', e.target.value)} placeholder="La bonne reponse" />
                           </div>
                         )}
+
                         {q.type === 'fill' && (
                           <div style={{ marginBottom: 8 }}>
                             <label className="form-label" style={{ fontSize: 12 }}>Texte avec blancs *</label>
@@ -1246,6 +1357,7 @@ export default function ClassDetail() {
                             <input className="form-input" value={q.answer || ''} onChange={e => updateQ(i, 'answer', e.target.value)} placeholder="Ex : France" />
                           </div>
                         )}
+
                         {q.type === 'match' && (
                           <div style={{ marginBottom: 8 }}>
                             {(q.choices || []).map((pair, ci) => (
@@ -1259,6 +1371,7 @@ export default function ClassDetail() {
                             <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 4 }} onClick={() => addChoice(i)}>+ Paire</button>
                           </div>
                         )}
+
                         {q.type === 'order' && (
                           <div style={{ marginBottom: 8 }}>
                             {(q.choices || []).map((c, ci) => (
@@ -1271,11 +1384,13 @@ export default function ClassDetail() {
                             <button type="button" className="btn btn-outline btn-sm" style={{ marginTop: 4 }} onClick={() => addChoice(i)}>+ Element</button>
                           </div>
                         )}
+
                         {(q.type === 'open' || q.type === 'upload') && (
                           <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 8, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--border)' }}>
                             {q.type === 'upload' ? "L'etudiant devra deposer un fichier. Correction manuelle." : "Reponse libre. Correction manuelle par l'enseignant."}
                           </div>
                         )}
+
                         {['mcq', 'mcq_multi', 'truefalse', 'short', 'fill', 'order', 'match'].includes(q.type) && (
                           <input className="form-input" style={{ fontSize: 12, marginTop: 6 }} placeholder="Explication affichee apres correction (optionnel)" value={q.explanation || ''} onChange={e => updateQ(i, 'explanation', e.target.value)} />
                         )}
@@ -1296,16 +1411,15 @@ export default function ClassDetail() {
   )
 }
 
+
 /* ══════════════════════════════════════════════════════════
-   FORUM
+   FORUM — composant greffé dans ClassDetail
+   Forum par cours, questions + réponses
 ══════════════════════════════════════════════════════════ */
 function ForumTab({ courses, user, canPost }) {
   const isTeacher = user?.role === 'teacher'
   const isAdmin   = user?.role === 'admin'
 
-  // ─────────────────────────────────────────────────────
-  // FIX #13 : parseInt("") → NaN, on stocke null à la place
-  // ─────────────────────────────────────────────────────
   const [selCourseId, setSelCourseId] = useState(courses[0]?.id || null)
   const [questions,   setQuestions]   = useState([])
   const [loading,     setLoading]     = useState(false)
@@ -1316,16 +1430,7 @@ function ForumTab({ courses, user, canPost }) {
   const [sending,     setSending]     = useState(false)
   const [msg,         setMsg]         = useState('')
 
-  // FIX #3 : timer annulable dans ForumTab aussi
-  const flashTimerRef = useRef(null)
-  useEffect(() => {
-    return () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current) }
-  }, [])
-  const flash = useCallback((text) => {
-    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
-    setMsg(text)
-    flashTimerRef.current = setTimeout(() => setMsg(''), 3000)
-  }, [])
+  const flash = text => { setMsg(text); setTimeout(() => setMsg(''), 3000) }
 
   const load = useCallback(async () => {
     if (!selCourseId) return
@@ -1369,13 +1474,9 @@ function ForumTab({ courses, user, canPost }) {
 
   const deleteQuestion = async questionId => {
     if (!confirm('Supprimer cette question ?')) return
-    try {
-      await api.delete(`/forum/post/${questionId}`)
-      if (openQ?.id === questionId) setOpenQ(null)
-      load()
-    } catch (err) {
-      flash(err.response?.data?.detail || 'Erreur')
-    }
+    await api.delete(`/forum/post/${questionId}`)
+    if (openQ?.id === questionId) setOpenQ(null)
+    load()
   }
 
   return (
@@ -1383,13 +1484,7 @@ function ForumTab({ courses, user, canPost }) {
       {courses.length > 1 && (
         <div className="form-group" style={{ maxWidth: 380, marginBottom: 20 }}>
           <label className="form-label">Forum du cours</label>
-          {/* FIX #13 : guard contre parseInt("") → NaN */}
-          <select className="form-select" value={selCourseId || ''} onChange={e => {
-            const v = e.target.value
-            setSelCourseId(v ? parseInt(v) : null)
-            setOpenQ(null)
-            setQuestions([])
-          }}>
+          <select className="form-select" value={selCourseId || ''} onChange={e => { setSelCourseId(parseInt(e.target.value)); setOpenQ(null); setQuestions([]) }}>
             {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
           </select>
         </div>
