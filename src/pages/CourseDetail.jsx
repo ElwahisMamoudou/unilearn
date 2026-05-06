@@ -21,12 +21,6 @@ const TABS = [
   { key: 'sessions',  label: '🎥 Cours en ligne' },
 ]
 
-const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
-const thumbUrl = path => {
-  if (!path) return null
-  if (path.startsWith('http')) return path
-  return BACKEND ? `${BACKEND}/${path.replace(/\\/g,'/').replace(/^\/+/,'')}` : `/${path.replace(/\\/g,'/').replace(/^\/+/,'')}`
-}
 
 export default function CourseDetail() {
   const { id }   = useParams()
