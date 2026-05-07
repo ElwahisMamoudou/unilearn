@@ -4,7 +4,7 @@ import useAuthStore from '../store/authStore'
 import api from '../api/client'
 
 const NAV_STUDENT = [
-  { to: '/',           label: 'Tableau de bord' },
+  { to: '/home',       label: 'Tableau de bord' },
   { to: '/my-courses', label: 'Mes cours' },
   { to: '/exams',      label: 'Examens' },
   { to: '/homeworks',  label: 'Devoirs' },
@@ -12,7 +12,7 @@ const NAV_STUDENT = [
 ]
 
 const NAV_TEACHER = [
-  { to: '/',          label: 'Tableau de bord' },
+  { to: '/home',      label: 'Tableau de bord' },
   { to: '/teacher',   label: 'Mes cours assignes' },
   { to: '/classes',   label: 'Mes classes' },
   { to: '/exams',     label: 'Examens' },
@@ -21,9 +21,9 @@ const NAV_TEACHER = [
 ]
 
 const NAV_ADMIN = [
-  { to: '/',        label: 'Tableau de bord' },
-  { to: '/admin',   label: 'Classes & Promotions' },
-  { to: '/messages',label: 'Messages', badge: true },
+  { to: '/home',     label: 'Tableau de bord' },
+  { to: '/admin',    label: 'Classes & Promotions' },
+  { to: '/messages', label: 'Messages', badge: true },
 ]
 
 export default function Sidebar({ open, onClose }) {
@@ -91,7 +91,7 @@ export default function Sidebar({ open, onClose }) {
             <NavLink
               key={to}
               to={to}
-              end={to === '/'}
+              end
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
               onClick={onClose}
             >
@@ -123,7 +123,7 @@ export default function Sidebar({ open, onClose }) {
             <button
               className="logout-btn"
               title="Se deconnecter"
-              onClick={() => { logout(); navigate('/login') }}
+              onClick={() => { logout(); navigate('/') }}
             >
               Quitter
             </button>
