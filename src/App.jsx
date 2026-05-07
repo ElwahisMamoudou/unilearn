@@ -18,6 +18,7 @@ import ClassDetail from './pages/ClassDetail'
 import VideoRoom from './pages/VideoRoom'
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
+import LandingPage from './pages/LandingPage'
 
 function ProtectedRoute({ children }) {
   const { token } = useAuthStore()
@@ -36,7 +37,7 @@ function AppLayout() {
   if (isRoom)   return <Routes><Route path="/room/:roomId" element={<VideoRoom />} /></Routes>
 
   const pageTitles = {
-    '/':           'Tableau de bord',
+    '/home':       'Tableau de bord',
     '/courses':    'Catalogue des cours',
     '/my-courses': 'Mes cours',
     '/teacher':    'Espace enseignant',
@@ -71,7 +72,8 @@ function AppLayout() {
         </header>
         <main className="content">
           <Routes>
-            <Route path="/"                element={<Dashboard />} />
+            <Route path="/home"            element={<Dashboard />} />
+            <Route path="/"                element={<Navigate to="/home" replace />} />
             <Route path="/courses"         element={<CoursesPage />} />
             <Route path="/courses/:id"     element={<CourseDetail />} />
             <Route path="/my-courses"      element={<CoursesPage myOnly />} />
@@ -84,7 +86,7 @@ function AppLayout() {
             <Route path="/classes"         element={<ClassesPage />} />
             <Route path="/classes/:id"     element={<ClassDetail />} />
             <Route path="/profile"         element={<ProfilePage />} />
-            <Route path="*"               element={<Navigate to="/" replace />} />
+            <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
         </main>
       </div>
@@ -93,9 +95,21 @@ function AppLayout() {
 }
 
 export default function App() {
+  const { token } = useAuthStore()
+
   return (
     <Routes>
-      <Route path="/login"        element={<LoginPage />} />
+      {/* Page d'accueil publique — accessible sans connexion */}
+      <Route path="/"
+        element={token ? <Navigate to="/home" replace /> : <LandingPage />}
+      />
+
+      {/* Connexion */}
+      <Route path="/login"
+        element={token ? <Navigate to="/home" replace /> : <LoginPage />}
+      />
+
+      {/* Pages protégées */}
       <Route path="/lesson/:id"   element={<ProtectedRoute><LessonViewer /></ProtectedRoute>} />
       <Route path="/room/:roomId" element={<ProtectedRoute><VideoRoom /></ProtectedRoute>} />
       <Route path="/*"            element={<ProtectedRoute><AppLayout /></ProtectedRoute>} />
