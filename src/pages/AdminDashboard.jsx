@@ -17,26 +17,12 @@ const LEVEL_COLORS = {
 }
 const lvlColor = l => LEVEL_COLORS[l] || '#6366f1'
 
-// ─────────────────────────────────────────────────────────────────
-// FIX #3 : useFlash — annulation du setTimeout au démontage
-// Évite la fuite mémoire et le warning "setState on unmounted component"
-// ─────────────────────────────────────────────────────────────────
 function useFlash() {
   const [msg, setMsg] = useState({ text: '', type: '' })
-  const timerRef = useRef(null)
-
-  useEffect(() => {
-    // Nettoyage à la destruction du composant
-    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [])
-
   const flash = useCallback((text, type = 'success') => {
-    // On annule le précédent timer avant d'en créer un nouveau
-    if (timerRef.current) clearTimeout(timerRef.current)
     setMsg({ text, type })
-    timerRef.current = setTimeout(() => setMsg({ text: '', type: '' }), 3500)
+    setTimeout(() => setMsg({ text: '', type: '' }), 3500)
   }, [])
-
   return [msg, flash]
 }
 
@@ -55,29 +41,15 @@ function ThumbnailField({ courseId, currentUrl, onFile, onUploaded }) {
   const [dragOver,  setDragOver]  = useState(false)
   const inputRef = useRef()
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #12 : on ne synchronise currentUrl → preview QUE si la
-  // valeur a réellement changé ET qu'il n'y a pas de preview locale
-  // en cours (base64). Sinon on écraserait l'aperçu immédiat.
-  // ─────────────────────────────────────────────────────────────
-  const prevCurrentUrlRef = useRef(currentUrl)
-  useEffect(() => {
-    if (currentUrl && currentUrl !== prevCurrentUrlRef.current) {
-      prevCurrentUrlRef.current = currentUrl
-      setPreview(currentUrl)
-    }
-  }, [currentUrl])
+  useEffect(() => { if (currentUrl) setPreview(currentUrl) }, [currentUrl])
 
   const handle = async (file) => {
     if (!file) return
     if (!file.type.startsWith('image/')) return alert('Seulement les images (JPG, PNG, WEBP)')
     if (file.size > 5 * 1024 * 1024) return alert('Image trop volumineuse (max 5 MB)')
-
-    // Aperçu immédiat en base64 — NE SERA PAS écrasé par l'effet ci-dessus
     const reader = new FileReader()
     reader.onload = e => setPreview(e.target.result)
     reader.readAsDataURL(file)
-
     if (courseId) {
       setUploading(true)
       try {
@@ -209,17 +181,7 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #11 : useMemo pour éviter le recalcul à chaque render
-  // ─────────────────────────────────────────────────────────────
-  const filteredClasses = useMemo(() =>
-    classes.filter(c =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.code || '').toLowerCase().includes(search.toLowerCase())
-    ),
-    [classes, search]
-  )
-
+  // ── Clic sur une classe → navigate vers ClassDetail.jsx ──
   const openClass = useCallback((cls) => {
     navigate(`/classes/${cls.id}`)
   }, [navigate])
@@ -231,17 +193,10 @@ export default function AdminDashboard() {
     setYearModal(true)
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #14 : validation start_date < end_date
-  // FIX #6  : fermeture de la modale après saveYear réussi
-  // ─────────────────────────────────────────────────────────────
   const saveYear = async () => {
     if (!newYearForm.name.trim()) return flash('Le nom est requis', 'error')
     if (!newYearForm.start_date)  return flash('La date de debut est requise', 'error')
     if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
-    if (new Date(newYearForm.start_date) >= new Date(newYearForm.end_date)) {
-      return flash('La date de fin doit être après la date de début', 'error')
-    }
     setSavingYear(true)
     try {
       const payload = {
@@ -269,8 +224,6 @@ export default function AdminDashboard() {
       }
       setEditYear(null)
       setNewYearForm({ name: '', start_date: '', end_date: '', is_current: false })
-      // FIX #6 : fermer la modale après succès
-      setYearModal(false)
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
     finally { setSavingYear(false) }
   }
@@ -290,16 +243,10 @@ export default function AdminDashboard() {
     flash(`"${yr.name}" definie comme annee courante`)
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FIX #14 : validation des dates dans createYearInline aussi
-  // ─────────────────────────────────────────────────────────────
   const createYearInline = async () => {
     if (!newYearForm.name.trim()) return flash('Le nom est requis', 'error')
     if (!newYearForm.start_date)  return flash('La date de debut est requise', 'error')
     if (!newYearForm.end_date)    return flash('La date de fin est requise', 'error')
-    if (new Date(newYearForm.start_date) >= new Date(newYearForm.end_date)) {
-      return flash('La date de fin doit être après la date de début', 'error')
-    }
     setSavingYear(true)
     try {
       const { data } = await api.post('/academic/years', {
@@ -402,7 +349,7 @@ export default function AdminDashboard() {
     catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
-  // ── Cours CRUD ──
+  // ── Cours CRUD (depuis le modal, sans lien à une classe) ──
   const openCreateCourse = () => {
     setEditCourse(null); setSavedCourseId(null); setPendingThumb(null)
     setCourseForm({ title: '', description: '', category_id: '', teacher_id: '', is_published: true })
@@ -452,6 +399,11 @@ export default function AdminDashboard() {
   const closeCourseModal = () => {
     setCourseModal(false); setSavedCourseId(null); setEditCourse(null); setPendingThumb(null)
   }
+
+  const filteredClasses = classes.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.code || '').toLowerCase().includes(search.toLowerCase())
+  )
 
   if (loading) return <div className="loading-overlay"><div className="spinner" /></div>
 
@@ -747,48 +699,197 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODAL UTILISATEUR */}
+      {/* MODAL UTILISATEUR — PREMIUM */}
       {userModal && (
         <div className="modal-overlay" onClick={() => setUserModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">{editUser ? 'Modifier' : 'Nouvel utilisateur'}</span>
-              <button className="modal-close" onClick={() => setUserModal(false)}>×</button>
-            </div>
-            <form onSubmit={saveUser}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Nom complet *</label>
-                  <input className="form-input" required value={userForm.name}
-                    onChange={e => setUserForm({ ...userForm, name: e.target.value })} />
+          <div className="modal" style={{ maxWidth: 520, width: '95vw', maxHeight: '95vh', overflowY: 'auto', borderRadius: 24, padding: 0 }} onClick={e => e.stopPropagation()}>
+
+            {/* En-tête coloré */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 100%)',
+              borderRadius: '24px 24px 0 0',
+              padding: '28px 32px 24px',
+              color: '#fff',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(99,102,241,.15)', pointerEvents: 'none' }} />
+              <div style={{ position: 'absolute', bottom: -20, left: '40%', width: 100, height: 100, borderRadius: '50%', background: 'rgba(14,165,233,.1)', pointerEvents: 'none' }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, backdropFilter: 'blur(8px)' }}>
+                    {editUser ? '✏️' : '👤'}
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 20, fontWeight: 800 }}>
+                      {editUser ? 'Modifier l\'utilisateur' : 'Nouvel utilisateur'}
+                    </div>
+                    <div style={{ fontSize: 12, opacity: .6, marginTop: 2 }}>
+                      {editUser ? `Modification de ${editUser.name}` : 'Créer un compte sur UniLearn'}
+                    </div>
+                  </div>
                 </div>
+                <button onClick={() => setUserModal(false)} style={{ background: 'rgba(255,255,255,.12)', border: 'none', color: '#fff', width: 34, height: 34, borderRadius: 10, cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}>×</button>
+              </div>
+            </div>
+
+            <form onSubmit={saveUser}>
+              <div style={{ padding: '28px 32px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                {/* Sélection du rôle par cartes */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Rôle *
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    {[
+                      { value: 'student',  label: 'Étudiant',     icon: '🎓', color: '#22c55e', desc: 'Accès aux cours' },
+                      { value: 'teacher',  label: 'Enseignant',   icon: '👨‍🏫', color: '#0ea5e9', desc: 'Gère ses cours' },
+                      { value: 'admin',    label: 'Admin',        icon: '⚙️', color: '#8b5cf6', desc: 'Accès total' },
+                    ].map(r => (
+                      <div key={r.value}
+                        onClick={() => setUserForm(f => ({ ...f, role: r.value }))}
+                        style={{
+                          padding: '14px 12px',
+                          borderRadius: 14,
+                          border: `2px solid ${userForm.role === r.value ? r.color : '#e2e8f0'}`,
+                          background: userForm.role === r.value ? `${r.color}10` : '#fafafa',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          transition: 'all .18s ease',
+                          transform: userForm.role === r.value ? 'translateY(-2px)' : 'none',
+                          boxShadow: userForm.role === r.value ? `0 6px 20px ${r.color}25` : 'none',
+                        }}
+                      >
+                        <div style={{ fontSize: 26, marginBottom: 6 }}>{r.icon}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: userForm.role === r.value ? r.color : '#374151' }}>{r.label}</div>
+                        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{r.desc}</div>
+                        {userForm.role === r.value && (
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: r.color, margin: '6px auto 0' }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Nom complet */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Nom complet *
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>👤</span>
+                    <input
+                      style={{ width: '100%', padding: '13px 14px 13px 44px', borderRadius: 12, border: '2px solid #e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none', transition: 'border-color .2s', boxSizing: 'border-box' }}
+                      required value={userForm.name}
+                      onChange={e => setUserForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="Ex : Amadou Diallo"
+                      onFocus={e => e.target.style.borderColor = '#6366f1'}
+                      onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                    />
+                  </div>
+                </div>
+
+                {/* Email + Mot de passe (création uniquement) */}
                 {!editUser && (
                   <>
-                    <div className="form-group">
-                      <label className="form-label">Email *</label>
-                      <input className="form-input" type="email" required value={userForm.email}
-                        onChange={e => setUserForm({ ...userForm, email: e.target.value })} />
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                        Adresse email *
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>✉️</span>
+                        <input
+                          style={{ width: '100%', padding: '13px 14px 13px 44px', borderRadius: 12, border: '2px solid #e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none', transition: 'border-color .2s', boxSizing: 'border-box' }}
+                          type="email" required value={userForm.email}
+                          onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))}
+                          placeholder="prenom.nom@univ-ndere.cm"
+                          onFocus={e => e.target.style.borderColor = '#6366f1'}
+                          onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Mot de passe *</label>
-                      <input className="form-input" type="password" required value={userForm.password}
-                        onChange={e => setUserForm({ ...userForm, password: e.target.value })} />
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                        Mot de passe *
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>🔒</span>
+                        <input
+                          style={{ width: '100%', padding: '13px 14px 13px 44px', borderRadius: 12, border: '2px solid #e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none', transition: 'border-color .2s', boxSizing: 'border-box' }}
+                          type="password" required minLength={6} value={userForm.password}
+                          onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))}
+                          placeholder="Minimum 6 caractères"
+                          onFocus={e => e.target.style.borderColor = '#6366f1'}
+                          onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                        />
+                      </div>
+                      {/* Indicateur force mot de passe */}
+                      {userForm.password && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                            {[1,2,3,4].map(i => {
+                              const strength = userForm.password.length < 6 ? 0 : userForm.password.length < 8 ? 1 : userForm.password.length < 10 && /[A-Z]/.test(userForm.password) ? 2 : /[A-Z]/.test(userForm.password) && /[0-9]/.test(userForm.password) ? 3 : 2
+                              const colors = ['#ef4444','#f59e0b','#0ea5e9','#22c55e']
+                              const labels = ['Faible','Moyen','Fort','Très fort']
+                              return (
+                                <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= strength ? colors[strength] : '#e2e8f0', transition: 'background .2s' }} />
+                              )
+                            })}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>
+                            Force : <strong style={{ color: userForm.password.length < 6 ? '#ef4444' : userForm.password.length < 8 ? '#f59e0b' : '#22c55e' }}>
+                              {userForm.password.length < 6 ? 'Trop court' : userForm.password.length < 8 ? 'Moyen' : /[A-Z]/.test(userForm.password) && /[0-9]/.test(userForm.password) ? 'Très fort' : 'Fort'}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
-                <div className="form-group">
-                  <label className="form-label">Role</label>
-                  <select className="form-select" value={userForm.role}
-                    onChange={e => setUserForm({ ...userForm, role: e.target.value })}>
-                    <option value="student">Etudiant</option>
-                    <option value="teacher">Enseignant</option>
-                    <option value="admin">Administrateur</option>
-                  </select>
-                </div>
+
+                {/* Résumé du compte */}
+                {(userForm.name || userForm.email) && (
+                  <div style={{ background: '#f8fafc', borderRadius: 14, padding: '14px 16px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{
+                      width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                      background: userForm.role === 'admin' ? '#8b5cf620' : userForm.role === 'teacher' ? '#0ea5e920' : '#22c55e20',
+                      color: userForm.role === 'admin' ? '#8b5cf6' : userForm.role === 'teacher' ? '#0ea5e9' : '#22c55e',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 15,
+                    }}>
+                      {userForm.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '??'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#0f1f3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {userForm.name || 'Nom non saisi'}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {userForm.email || 'Email non saisi'} · {userForm.role === 'admin' ? 'Administrateur' : userForm.role === 'teacher' ? 'Enseignant' : 'Étudiant'}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-outline" onClick={() => setUserModal(false)}>Annuler</button>
-                <button type="submit" className="btn btn-primary">Enregistrer</button>
+
+              {/* Footer */}
+              <div style={{ padding: '0 32px 28px', display: 'flex', gap: 10 }}>
+                <button type="button"
+                  onClick={() => setUserModal(false)}
+                  style={{ flex: 1, padding: '13px', borderRadius: 12, border: '1.5px solid #e2e8f0', background: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#374151', fontFamily: 'inherit', transition: 'all .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                >
+                  Annuler
+                </button>
+                <button type="submit"
+                  style={{ flex: 2, padding: '13px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #6366f1, #0ea5e9)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 6px 20px rgba(99,102,241,.3)', transition: 'all .2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 10px 28px rgba(99,102,241,.4)' }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(99,102,241,.3)' }}
+                >
+                  {editUser ? '💾 Enregistrer' : '✨ Créer le compte'}
+                </button>
               </div>
             </form>
           </div>
