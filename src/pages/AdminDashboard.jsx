@@ -154,6 +154,7 @@ export default function AdminDashboard() {
   const [editYear,    setEditYear]    = useState(null)
 
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'student' })
+  const [confirmPass, setConfirmPass] = useState('')
 
   const [courseForm,    setCourseForm]    = useState({ title: '', description: '', category_id: '', teacher_id: '', is_published: true })
   const [savedCourseId, setSavedCourseId] = useState(null)
@@ -323,15 +324,20 @@ export default function AdminDashboard() {
   const openCreateUser = role => {
     setEditUser(null)
     setUserForm({ name: '', email: '', password: '', role: role || 'student' })
+    setConfirmPass('')
     setUserModal(true)
   }
   const openEditUser = u => {
     setEditUser(u)
     setUserForm({ name: u.name, email: u.email, password: '', role: u.role })
+    setConfirmPass('')
     setUserModal(true)
   }
   const saveUser = async e => {
     e.preventDefault()
+    if (!editUser && userForm.password !== confirmPass) {
+      return flash('Les mots de passe ne correspondent pas', 'error')
+    }
     try {
       if (editUser) await api.put(`/admin/users/${editUser.id}`, { name: userForm.name, role: userForm.role, is_active: editUser.is_active })
       else await api.post('/admin/users', userForm)
@@ -832,7 +838,6 @@ export default function AdminDashboard() {
                             {[1,2,3,4].map(i => {
                               const strength = userForm.password.length < 6 ? 0 : userForm.password.length < 8 ? 1 : userForm.password.length < 10 && /[A-Z]/.test(userForm.password) ? 2 : /[A-Z]/.test(userForm.password) && /[0-9]/.test(userForm.password) ? 3 : 2
                               const colors = ['#ef4444','#f59e0b','#0ea5e9','#22c55e']
-                              const labels = ['Faible','Moyen','Fort','Très fort']
                               return (
                                 <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= strength ? colors[strength] : '#e2e8f0', transition: 'background .2s' }} />
                               )
@@ -843,6 +848,45 @@ export default function AdminDashboard() {
                               {userForm.password.length < 6 ? 'Trop court' : userForm.password.length < 8 ? 'Moyen' : /[A-Z]/.test(userForm.password) && /[0-9]/.test(userForm.password) ? 'Très fort' : 'Fort'}
                             </strong>
                           </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Confirmation mot de passe */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+                        Confirmer le mot de passe *
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none' }}>
+                          {confirmPass && (confirmPass === userForm.password ? '✅' : '❌')}
+                          {!confirmPass && '🔐'}
+                        </span>
+                        <input
+                          style={{
+                            width: '100%', padding: '13px 14px 13px 44px', borderRadius: 12,
+                            border: `2px solid ${
+                              !confirmPass ? '#e2e8f0'
+                              : confirmPass === userForm.password ? '#22c55e'
+                              : '#ef4444'
+                            }`,
+                            fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                            transition: 'border-color .2s', boxSizing: 'border-box',
+                            background: !confirmPass ? '#fff' : confirmPass === userForm.password ? '#f0fdf4' : '#fef2f2',
+                          }}
+                          type="password" required minLength={6} value={confirmPass}
+                          onChange={e => setConfirmPass(e.target.value)}
+                          placeholder="Retapez le mot de passe"
+                        />
+                      </div>
+                      {confirmPass && confirmPass !== userForm.password && (
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          ❌ Les mots de passe ne correspondent pas
+                        </div>
+                      )}
+                      {confirmPass && confirmPass === userForm.password && (
+                        <div style={{ marginTop: 6, fontSize: 12, color: '#22c55e', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          ✅ Les mots de passe correspondent
                         </div>
                       )}
                     </div>
