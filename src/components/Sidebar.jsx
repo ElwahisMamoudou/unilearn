@@ -13,8 +13,7 @@ const NAV_STUDENT = [
 
 const NAV_TEACHER = [
   { to: '/home',      label: 'Tableau de bord' },
-  { to: '/teacher',   label: 'Mes cours assignes' },
-  { to: '/classes',   label: 'Mes classes' },
+  { to: '/teacher',   label: 'Mes cours' },
   { to: '/exams',     label: 'Examens' },
   { to: '/homeworks', label: 'Devoirs' },
   { to: '/messages',  label: 'Messages', badge: true },
