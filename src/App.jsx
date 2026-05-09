@@ -79,12 +79,24 @@ function AppLayout() {
             <Route path="/my-courses"      element={<CoursesPage myOnly />} />
             <Route path="/teacher"         element={<TeacherDashboard />} />
             <Route path="/messages"        element={<MessagesPage />} />
-            <Route path="/admin"           element={<AdminDashboard />} />
+            <Route path="/admin"           element={
+              user?.role === 'admin'
+                ? <AdminDashboard />
+                : <Navigate to="/home" replace />
+            } />
             <Route path="/forum/:courseId" element={<ForumPage />} />
             <Route path="/exams"           element={<ExamPage />} />
             <Route path="/homeworks"       element={<HomeworkPage />} />
-            <Route path="/classes"         element={<ClassesPage />} />
-            <Route path="/classes/:id"     element={<ClassDetail />} />
+            <Route path="/classes"         element={
+              user?.role === 'admin'
+                ? <ClassesPage />
+                : <Navigate to="/home" replace />
+            } />
+            <Route path="/classes/:id"     element={
+              user?.role === 'admin'
+                ? <ClassDetail />
+                : <Navigate to="/home" replace />
+            } />
             <Route path="/profile"         element={<ProfilePage />} />
             <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
