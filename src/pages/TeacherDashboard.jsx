@@ -33,6 +33,7 @@ export default function TeacherDashboard() {
   const navigate  = useNavigate()
 
   const [courses,  setCourses]  = useState([])
+  const [grouped,  setGrouped]  = useState({ byClass: [], noClass: [] })
   const [loading,  setLoading]  = useState(true)
   const [msg,      setMsg]      = useState({ text: '', type: '' })
 
@@ -59,7 +60,28 @@ export default function TeacherDashboard() {
   const load = useCallback(() => {
     setLoading(true)
     api.get('/courses/my')
-      .then(r => { setCourses(r.data); setLoading(false) })
+      .then(r => {
+        // Grouper les cours par classe
+        const grouped = {}
+        const noClass = []
+        r.data.forEach(c => {
+          if (c.class_group_id) {
+            if (!grouped[c.class_group_id]) {
+              grouped[c.class_group_id] = {
+                class_group_id:   c.class_group_id,
+                class_group_name: c.class_group_name || `Classe #${c.class_group_id}`,
+                courses: [],
+              }
+            }
+            grouped[c.class_group_id].courses.push(c)
+          } else {
+            noClass.push(c)
+          }
+        })
+        setCourses(r.data)
+        setGrouped({ byClass: Object.values(grouped), noClass })
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -172,7 +194,7 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      {/* ── Grille de cours ── */}
+      {/* ── Cours groupés par classe ── */}
       {courses.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: 52, marginBottom: 12 }}>📭</div>
@@ -181,136 +203,48 @@ export default function TeacherDashboard() {
         </div>
       ) : (
         <>
-          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)', marginBottom: 16 }}>
-            Mes cours ({courses.length})
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-            {courses.map(c => {
-              const thumb = thumbUrl(c.thumbnail)
-              const [g0, g1] = catGrad(c.category_id || c.id)
-              const icon = catIcon(c.category?.name || c.title)
-              const expanded = selCourse?.id === c.id
-
-              return (
-                <div key={c.id} style={{
-                  borderRadius: 18, overflow: 'hidden',
-                  border: expanded ? '2px solid var(--blue)' : '1px solid var(--border)',
-                  background: '#fff',
-                  boxShadow: expanded ? '0 8px 32px rgba(59,130,246,.15)' : '0 4px 16px rgba(15,31,61,.06)',
-                  transition: 'all .22s cubic-bezier(.175,.885,.32,1.275)',
-                  display: 'flex', flexDirection: 'column',
-                }}
-                  onMouseEnter={e => { if (!expanded) { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 12px 32px rgba(59,130,246,.14)' } }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = expanded ? '0 8px 32px rgba(59,130,246,.15)' : '0 4px 16px rgba(15,31,61,.06)' }}
-                >
-                  {/* ── IMAGE ── */}
-                  <div style={{ height: 200, position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      background: thumb
-                        ? `url(${thumb}) center/cover no-repeat`
-                        : `linear-gradient(145deg, ${g0} 0%, ${g1} 100%)`,
-                    }} />
-                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 55%)' }} />
-                    {!thumb && (
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 70, filter: 'drop-shadow(0 4px 12px rgba(0,0,0,.3))' }}>
-                        {icon}
-                      </div>
-                    )}
-                    {/* Badge statut */}
-                    <div style={{ position: 'absolute', top: 12, right: 12, background: c.is_published ? 'rgba(34,197,94,.9)' : 'rgba(245,158,11,.9)', color: '#fff', fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 20 }}>
-                      {c.is_published ? '✓ PUBLIÉ' : '✏ BROUILLON'}
-                    </div>
-                    {/* Titre sur image */}
-                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 16px' }}>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', textShadow: '0 2px 8px rgba(0,0,0,.5)', lineHeight: 1.3 }}>{c.title}</div>
-                    </div>
+          {/* Classes avec cours */}
+          {grouped.byClass.map(grp => (
+            <div key={grp.class_group_id} style={{ marginBottom: 36 }}>
+              {/* En-tête de la classe */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 38, height: 38, borderRadius: 10, background: 'linear-gradient(135deg, #1e3a5f, #0ea5e9)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🎓</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)' }}>{grp.class_group_name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{grp.courses.length} cours · {grp.courses.reduce((s, c) => s + (c.lesson_count || 0), 0)} leçons</div>
                   </div>
-
-                  {/* ── INFOS ── */}
-                  <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
-                      <span>📖 {c.lesson_count || 0} leçon(s)</span>
-                      <span>👥 {c.student_count || 0} étudiant(s)</span>
-                      {c.category?.name && <span>🏷 {c.category.name}</span>}
-                    </div>
-
-                    {/* ── ACTIONS (une seule rangée propre) ── */}
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        className="btn btn-primary btn-sm"
-                        style={{ flex: 1 }}
-                        onClick={() => navigate(`/courses/${c.id}`)}
-                      >
-                        Voir le cours →
-                      </button>
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => openCourse(c)}
-                        title="Voir / gérer les leçons"
-                      >
-                        {expanded ? 'Fermer' : '📖 Leçons'}
-                      </button>
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => {
-                          setSelCourse(c)
-                          setLessonForm({ title: '', duration: '', order: c.lesson_count || 0 })
-                          setLessonFile(null)
-                          setUploadModal(true)
-                          if (selCourse?.id !== c.id) openCourse(c)
-                        }}
-                        title="Ajouter une leçon"
-                      >
-                        +
-                      </button>
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }}
-                        title="Démarrer un cours en ligne"
-                      >
-                        🎥
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* ── LEÇONS EXPANDÉES ── */}
-                  {expanded && (
-                    <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', background: '#f8fafc' }}>
-                      {lessons.length === 0 ? (
-                        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>
-                          Aucune leçon. Cliquez "+" pour ajouter.
-                        </div>
-                      ) : lessons.map((l, i) => (
-                        <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lessons.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                          <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7', color: l.type === 'pdf' ? '#1d4ed8' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
-                            {i + 1}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.title}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{l.type === 'pdf' ? 'PDF' : 'Vidéo'}{l.duration ? ` · ${l.duration}` : ''}</div>
-                          </div>
-                          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: l.file_path ? '#dcfce7' : '#fee2e2', color: l.file_path ? '#16a34a' : '#991b1b', flexShrink: 0 }}>
-                            {l.file_path ? '✓' : '⚠'}
-                          </span>
-                          {l.file_path && (
-                            <button className="btn btn-outline btn-sm" style={{ fontSize: 10, padding: '2px 8px' }}
-                              onClick={() => navigate(`/lesson/${l.id}`)}>
-                              Aperçu
-                            </button>
-                          )}
-                          <button className="btn btn-danger btn-sm" style={{ fontSize: 10, padding: '2px 6px' }}
-                            onClick={() => deleteLesson(l.id)}>
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              )
-            })}
-          </div>
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => navigate(`/classes/${grp.class_group_id}`)}
+                >
+                  Voir la classe →
+                </button>
+              </div>
+
+              {/* Cartes des cours de cette classe */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
+                {grp.courses.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
+              </div>
+            </div>
+          ))}
+
+          {/* Cours sans classe assignée */}
+          {grouped.noClass.length > 0 && (
+            <div style={{ marginBottom: 36 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📚</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)' }}>Cours sans classe</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{grouped.noClass.length} cours non associés à une classe</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
+                {grouped.noClass.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
+              </div>
+            </div>
+          )}
         </>
       )}
 
