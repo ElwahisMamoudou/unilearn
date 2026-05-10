@@ -76,6 +76,7 @@ class CourseOut(BaseModel):
     enrolled:      bool  = False
     progress_pct:  float = 0.0
     class_group_id: int | None = None
+    class_group_name: str = ""
     class Config:
         from_attributes = True
 
@@ -108,6 +109,7 @@ def _enrich(course: Course, user_id: int, db: Session) -> dict:
         "enrolled":      enrollment is not None,
         "progress_pct":  round(done / len(lessons) * 100, 1) if lessons else 0.0,
         "class_group_id": getattr(course, 'class_group_id', None),
+        "class_group_name": course.class_group.name if course.class_group else "",
     }
 
 
