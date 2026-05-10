@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List, Optional
 from datetime import datetime
 
@@ -60,6 +61,23 @@ def _enrich(cg: ClassGroup) -> dict:
     }
 
 
+def _can_view_class(cg: ClassGroup, me: User, db: Session) -> bool:
+    if me.role == "admin":
+        return True
+    if me.role == "teacher":
+        teaches_class_course = db.query(Course.id).filter(
+            Course.class_group_id == cg.id,
+            Course.teacher_id == me.id,
+        ).first() is not None
+        return cg.teacher_id == me.id or teaches_class_course
+    return any(student.id == me.id for student in cg.students)
+
+
+def _ensure_can_view_class(cg: ClassGroup, me: User, db: Session) -> None:
+    if not _can_view_class(cg, me, db):
+        raise HTTPException(403, "Accès interdit à cette classe")
+
+
 # ── CRUD Classes ──────────────────────────────────
 @router.get("", response_model=List[ClassOut])
 def list_classes(
@@ -69,8 +87,17 @@ def list_classes(
     if me.role == "admin":
         classes = db.query(ClassGroup).order_by(ClassGroup.name).all()
     elif me.role == "teacher":
+        course_class_ids = [
+            row[0] for row in db.query(Course.class_group_id)
+            .filter(Course.teacher_id == me.id, Course.class_group_id.isnot(None))
+            .distinct()
+            .all()
+        ]
         classes = db.query(ClassGroup).filter(
-            ClassGroup.teacher_id == me.id
+            or_(
+                ClassGroup.teacher_id == me.id,
+                ClassGroup.id.in_(course_class_ids),
+            )
         ).order_by(ClassGroup.name).all()
     else:
         classes = me.class_groups
@@ -86,6 +113,7 @@ def get_class(
     cg = db.query(ClassGroup).filter(ClassGroup.id == class_id).first()
     if not cg:
         raise HTTPException(404, "Classe introuvable")
+    _ensure_can_view_class(cg, me, db)
 
     class_courses = db.query(Course).filter(Course.class_group_id == class_id).all()
 
@@ -234,6 +262,7 @@ def list_students(
     cg = db.query(ClassGroup).filter(ClassGroup.id == class_id).first()
     if not cg:
         raise HTTPException(404, "Classe introuvable")
+    _ensure_can_view_class(cg, me, db)
     return cg.students
 
 
