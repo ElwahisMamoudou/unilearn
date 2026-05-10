@@ -29,6 +29,7 @@ function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { user } = useAuthStore()
   const location = useLocation()
+  const canViewClasses = ['admin', 'teacher', 'student'].includes(user?.role)
 
   const isViewer = location.pathname.startsWith('/lesson/')
   const isRoom   = location.pathname.startsWith('/room/')
@@ -88,12 +89,12 @@ function AppLayout() {
             <Route path="/exams"           element={<ExamPage />} />
             <Route path="/homeworks"       element={<HomeworkPage />} />
             <Route path="/classes"         element={
-              user?.role === 'admin'
+              canViewClasses
                 ? <ClassesPage />
                 : <Navigate to="/home" replace />
             } />
             <Route path="/classes/:id"     element={
-              user?.role === 'admin'
+              canViewClasses
                 ? <ClassDetail />
                 : <Navigate to="/home" replace />
             } />
