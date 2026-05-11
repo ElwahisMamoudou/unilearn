@@ -26,15 +26,13 @@ export default function CourseDetail() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
 
-const isAdmin   = user?.role === 'admin'
-const isTeacher = user?.role === 'teacher'
-const isStudent = user?.role === 'student'
-const [tab,       setTab]       = useState('lessons')
-const [course,    setCourse]    = useState(null)
-const canManage = isAdmin || (isTeacher && course?.teacher_id === user?.id)
+  const isAdmin   = user?.role === 'admin'
+  const isTeacher = user?.role === 'teacher'
+  const isStudent = user?.role === 'student'
 
   const [tab,       setTab]       = useState('lessons')
   const [course,    setCourse]    = useState(null)
+  const canManage = isAdmin || Boolean(isTeacher && course && course.teacher_id === user?.id)
   const [lessons,   setLessons]   = useState([])
   const [homeworks, setHomeworks] = useState([])
   const [exams,     setExams]     = useState([])
