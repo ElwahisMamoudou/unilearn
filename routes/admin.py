@@ -62,6 +62,9 @@ class CourseAdminIn(BaseModel):
     teacher_id:   int
     is_published: bool = False
 
+class CourseTeacherAssignIn(BaseModel):
+    teacher_id: int
+
 class CourseOut(BaseModel):
     id: int; title: str; description: Optional[str]
     is_published: bool; teacher_id: int
@@ -280,6 +283,32 @@ def admin_update_course(
         thumbnail     = course.thumbnail,
     )
 
+@router.patch("/courses/{course_id}/teacher", response_model=CourseOut)
+def admin_assign_course_teacher(
+    course_id: int,
+    body: CourseTeacherAssignIn,
+    db: Session = Depends(get_db),
+    me: User = Depends(require_admin),
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
+    if not teacher:
+        raise HTTPException(404, "Enseignant introuvable")
+
+    course.teacher_id = teacher.id
+    db.commit()
+    db.refresh(course)
+    return CourseOut(
+        id=course.id, title=course.title, description=course.description,
+        is_published=course.is_published, teacher_id=course.teacher_id,
+        teacher_name=teacher.name,
+        category_name=course.category.name if course.category else "",
+        lesson_count=len(course.lessons),
+        student_count=len(course.enrollments),
+        thumbnail=course.thumbnail,
+    )
 
 @router.delete("/courses/{course_id}", status_code=204)
 def admin_delete_course(
