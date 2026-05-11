@@ -105,6 +105,7 @@ export default function ClassDetail() {
   const [courseCreatedId,  setCourseCreatedId]  = useState(null)
   const [pendingThumb,     setPendingThumb]     = useState(null)
   const [courseThumbPreview, setCourseThumbPreview] = useState(null)
+  const [assigningTeacherCourseId, setAssigningTeacherCourseId] = useState(null)
   const courseThumbRef = useRef()
 
   // ── Examens ──
@@ -307,6 +308,25 @@ export default function ClassDetail() {
     loadTab('homeworks', true)
   }
 
+  const assignTeacherToCourse = async (courseId, teacherId) => {
+  if (!teacherId) return
+  setAssigningTeacherCourseId(courseId)
+  try {
+    await api.patch(`/admin/courses/${courseId}/teacher`, { teacher_id: parseInt(teacherId) })
+    flash('Enseignant inscrit au cours !')
+    const [acr, detail] = await Promise.all([
+      api.get('/admin/courses'),
+      api.get(`/classes/${id}`),
+    ])
+    setAllCourses(acr.data)
+    if (detail.data.courses) setCourses(detail.data.courses)
+  } catch (err) {
+    flash(err.response?.data?.detail || 'Erreur assignation enseignant', 'error')
+  } finally {
+    setAssigningTeacherCourseId(null)
+  }
+}
+  
   // ── Création cours pour la classe ──────────────────────────────────────
   const createCourseForClass = async (e) => {
     e.preventDefault()
@@ -690,6 +710,29 @@ export default function ClassDetail() {
                           </button>
                         )}
                       </div>
+                          {isAdmin && (
+                        <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: '#f8fafc', border: '1px solid var(--border)' }}>
+                          <label className="form-label" style={{ fontSize: 11, marginBottom: 6 }}>
+                            Inscrire / changer l'enseignant
+                          </label>
+                          <select
+                            className="form-select"
+                            value={c.teacher_id || ''}
+                            disabled={assigningTeacherCourseId === c.id}
+                            onChange={e => assignTeacherToCourse(c.id, e.target.value)}
+                          >
+                            <option value="">-- Choisir un enseignant --</option>
+                            {allUsers.filter(u => u.role === 'teacher').map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                          {assigningTeacherCourseId === c.id && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                              Enregistrement...
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* ── LEÇONS EXPANDÉES ── */}
