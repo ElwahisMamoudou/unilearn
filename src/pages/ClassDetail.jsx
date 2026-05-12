@@ -478,6 +478,8 @@ export default function ClassDetail() {
   if (!cls)    return <div className="loading-overlay">Classe introuvable</div>
 
   const notInClass = allUsers.filter(u => u.role === 'student' && !students.find(s => s.id === u.id))
+  const manageableCourses = isAdmin ? courses : courses.filter(c => c.teacher_id === user?.id)
+  const firstManageableCourse = manageableCourses[0]
 
   return (
     <div>
@@ -544,14 +546,14 @@ export default function ClassDetail() {
               </div>
             ))}
           </div>
-          {canManage && courses.length > 0 && (
+           {canManage && manageableCourses.length > 0 && (    
             <div>
               <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', marginBottom: 10 }}>Actions rapides</div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button className="btn btn-outline" onClick={() => { switchTab('courses'); setTimeout(() => openCourse(courses[0]), 100) }}>Ajouter une lecon</button>
-                <button className="btn btn-outline" onClick={() => { setHwModal(true); setHwForm({ title: '', description: '', due_date: '', max_score: 20, course_id: courses[0]?.id || '', is_published: false }); setHwFile(null) }}>Creer un devoir</button>
-                <button className="btn btn-outline" onClick={() => { setExModal(true); setExForm({ ...EMPTY_EX_FORM, course_id: courses[0]?.id || '' }); setQuestions([]) }}>Creer un examen</button>
-                <button className="btn btn-primary" onClick={() => { setSessionModal(true); setSessionForm({ title: '', scheduled_at: '', course_id: courses[0]?.id || '' }) }}>Demarrer cours en ligne</button>
+                <button className="btn btn-outline" onClick={() => { switchTab('courses'); setTimeout(() => openCourse(firstManageableCourse), 100) }}>Ajouter une lecon</button>
+                <button className="btn btn-outline" onClick={() => { setHwModal(true); setHwForm({ title: '', description: '', due_date: '', max_score: 20, course_id: firstManageableCourse?.id || '', is_published: false }); setHwFile(null) }}>Creer un devoir</button>
+                <button className="btn btn-outline" onClick={() => { setExModal(true); setExForm({ ...EMPTY_EX_FORM, course_id: firstManageableCourse?.id || '' }); setQuestions([]) }}>Creer un examen</button>
+                <button className="btn btn-primary" onClick={() => { setSessionModal(true); setSessionForm({ title: '', scheduled_at: '', course_id: firstManageableCourse?.id || '' }) }}>Demarrer cours en ligne</button>
               </div>
             </div>
           )}
@@ -703,7 +705,7 @@ export default function ClassDetail() {
                           onClick={() => openCourse(c)}>
                           {expanded ? 'Fermer' : 'Leçons'}
                         </button>
-                        {canManage && (
+                        {(isAdmin || c.teacher_id === user?.id) && (
                           <button className="btn btn-outline btn-sm"
                             onClick={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count }); setLessonFile(null); setUploadModal(true); openCourse(c) }}>
                             + Leçon
@@ -1005,7 +1007,7 @@ export default function ClassDetail() {
                   <label className="form-label">Cours *</label>
                   <select className="form-select" required value={sessionForm.course_id} onChange={e => setSessionForm({ ...sessionForm, course_id: e.target.value })}>
                     <option value="">-- Choisir --</option>
-                    {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                    {manageableCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
@@ -1042,7 +1044,7 @@ export default function ClassDetail() {
                   <label className="form-label">Cours *</label>
                   <select className="form-select" required value={hwForm.course_id} onChange={e => setHwForm({ ...hwForm, course_id: e.target.value })}>
                     <option value="">-- Choisir un cours --</option>
-                    {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                    {manageableCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 </div>
 
@@ -1249,7 +1251,7 @@ export default function ClassDetail() {
                   <label className="form-label">Cours *</label>
                   <select className="form-select" required value={exForm.course_id} onChange={e => setExForm(f => ({ ...f, course_id: e.target.value }))}>
                     <option value="">-- Choisir un cours --</option>
-                    {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                    {manageableCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
@@ -1485,7 +1487,15 @@ function ForumTab({ courses, user, canPost }) {
     finally { setLoading(false) }
   }, [selCourseId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+  if (!selCourseId && courses.length > 0) {
+    setSelCourseId(courses[0].id)
+    return
+  }
+  if (selCourseId && !courses.some(c => c.id === selCourseId)) {
+    setSelCourseId(courses[0]?.id || null)
+  }
+}, [courses, selCourseId])
 
   const postQuestion = async e => {
     e.preventDefault()
