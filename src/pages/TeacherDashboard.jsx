@@ -28,6 +28,90 @@ const catIcon = (name = '') => {
   return '📚'
 }
 
+
+function CourseCard({ c, expanded, lessons, onOpen, onAddLesson, onSession, onDelete, navigate }) {
+  const gradient = catGrad(c.category?.id || c.id || 0)
+  const thumbnail = thumbUrl(c.thumbnail)
+
+  return (
+    <div className="card" style={{ overflow: 'hidden', border: '1px solid var(--border)' }}>
+      <div
+        onClick={onOpen}
+        style={{ cursor: 'pointer' }}
+      >
+        <div style={{
+          height: 110,
+          background: thumbnail
+            ? `linear-gradient(135deg, rgba(15,31,61,.25), rgba(15,31,61,.45)), url(${thumbnail}) center/cover`
+            : `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontSize: 34, fontWeight: 800,
+        }}>
+          {!thumbnail && catIcon(c.category?.name)}
+        </div>
+        <div className="card-body" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, color: 'var(--navy)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {c.title}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <span>{c.lesson_count || 0} leçon(s)</span>
+                {c.category?.name && <span>· {c.category.name}</span>}
+                <span>· {c.is_published ? 'Publié' : 'Brouillon'}</span>
+              </div>
+            </div>
+            <span style={{ fontSize: 18, color: 'var(--text-muted)' }}>{expanded ? '▴' : '▾'}</span>
+          </div>
+
+          {c.description && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '10px 0 0', lineHeight: 1.45 }}>
+              {c.description.length > 110 ? `${c.description.slice(0, 110)}…` : c.description}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, padding: '0 16px 16px', flexWrap: 'wrap' }}>
+        <button className="btn btn-primary btn-sm" onClick={e => { e.stopPropagation(); onAddLesson() }}>
+          + Leçon
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={e => { e.stopPropagation(); onSession() }}>
+          🎥 Direct
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={e => { e.stopPropagation(); navigate(`/courses/${c.id}`) }}>
+          Ouvrir
+        </button>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: 14, background: '#f8fafc' }}>
+          {lessons.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: 12 }}>
+              Aucune leçon pour ce cours.
+            </div>
+          ) : lessons.map(l => (
+            <div key={l.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+              padding: '9px 10px', marginBottom: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--navy)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {l.title}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.duration || 'Durée non précisée'}</div>
+              </div>
+              <button className="btn btn-outline btn-sm" onClick={() => navigate(`/lesson/${l.id}`)}>Voir</button>
+              <button className="btn btn-danger btn-sm" onClick={() => onDelete(l.id)}>🗑️</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TeacherDashboard() {
   const { user }  = useAuthStore()
   const navigate  = useNavigate()
