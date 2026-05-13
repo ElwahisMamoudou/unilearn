@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
+import useAuthStore from '../store/authStore'
 
 /**
  * LessonViewer — Lecteur de leçons PDF et Vidéo
@@ -17,6 +18,7 @@ import api from '../api/client'
 export default function LessonViewer() {
   const { id }   = useParams()
   const navigate = useNavigate()
+  const { user } = useAuthStore()
 
   const [lesson,   setLesson]   = useState(null)
   const [lessons,  setLessons]  = useState([])
@@ -68,7 +70,10 @@ export default function LessonViewer() {
   }, [id])
 
   // ── Sauvegarde progression (debounce 1.5s) ─────────────────────────────
+  const canTrackProgress = user?.role === 'student' || user?.role === 'admin'
+
   const saveProgress = (patch) => {
+    if (!canTrackProgress) return
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
       api.post(`/lessons/${id}/progress`, { ...progress, ...patch })
@@ -78,6 +83,7 @@ export default function LessonViewer() {
   }
 
   const markDone = () => {
+    if (!canTrackProgress) return
     const updated = { ...progress, completed: true }
     setProgress(updated)
     api.post(`/lessons/${id}/progress`, updated).catch(() => {})
@@ -88,7 +94,8 @@ export default function LessonViewer() {
   // ne permettent pas d'ajouter des headers HTTP personnalisés.
   // Le backend doit accepter ?token= en plus du header Authorization.
   const token   = localStorage.getItem('token') || ''
-  const fileUrl = `/api/lessons/${id}/file?token=${encodeURIComponent(token)}`
+  const API_ROOT = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/api\/?$/, '')
+  const fileUrl = `${API_ROOT}/api/lessons/${id}/file?token=${encodeURIComponent(token)}`
 
   // ── Navigation prev / next ─────────────────────────────────────────────
   const currentIdx = lessons.findIndex(l => l.id === parseInt(id))
@@ -139,7 +146,13 @@ export default function LessonViewer() {
           {lesson.title}
         </div>
 
-        {progress.completed ? (
+        {!canTrackProgress ? (
+          <span style={{
+            background: 'rgba(255,255,255,.12)', color: 'rgba(255,255,255,.75)',
+            fontSize: 12, fontWeight: 700,
+            padding: '4px 12px', borderRadius: 20, flexShrink: 0,
+          }}>Mode enseignant</span>
+        ) : progress.completed ? (
           <span style={{
             background: '#d1fae5', color: '#065f46',
             fontSize: 12, fontWeight: 700,
