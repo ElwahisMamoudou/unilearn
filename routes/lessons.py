@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from models import Lesson, Course, Progress, User, get_db
+from models import Lesson, Course, ClassGroup, Enrollment, Progress, User, get_db
 from auth import get_current_user, require_teacher, verify_token
 
 router = APIRouter(prefix="/api/lessons", tags=["lessons"])
@@ -19,11 +19,57 @@ ALLOWED = {
 }
 
 
-def _file_type(content_type: str) -> str | None:
+def _file_type(content_type: str | None, filename: str | None = None) -> str | None:
     for typ, mimes in ALLOWED.items():
         if content_type in mimes:
             return typ
+
+    # Certains navigateurs/OS envoient application/octet-stream ou un type vide
+    # pour les vidéos. On accepte alors les extensions connues.
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext == ".pdf":
+        return "pdf"
+    if ext in {".mp4", ".webm", ".ogg", ".mpeg", ".mpg", ".mov"}:
+        return "video"
     return None
+
+
+def _teacher_can_view_course(course: Course, teacher_id: int, db: Session) -> bool:
+    if course.teacher_id == teacher_id:
+        return True
+    if not course.class_group_id:
+        return False
+
+    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
+    if not class_group:
+        return False
+    if class_group.teacher_id == teacher_id:
+        return True
+
+    return db.query(Course.id).filter(
+        Course.class_group_id == course.class_group_id,
+        Course.teacher_id == teacher_id,
+    ).first() is not None
+
+
+def _can_view_course(course: Course, me: User, db: Session) -> bool:
+    if me.role == "admin":
+        return True
+    if me.role == "teacher":
+        return _teacher_can_view_course(course, me.id, db)
+    return db.query(Enrollment.id).filter_by(
+        student_id=me.id,
+        course_id=course.id,
+    ).first() is not None
+
+
+def _ensure_can_view_lesson(lesson: Lesson, me: User, db: Session) -> Course:
+    course = db.query(Course).filter(Course.id == lesson.course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    if not _can_view_course(course, me, db):
+        raise HTTPException(403, "Vous n'avez pas accès à cette leçon")
+    return course
 
 
 # ── Schémas ───────────────────────────────────────
@@ -66,11 +112,11 @@ async def upload_lesson(
     if me.role == "teacher" and course.teacher_id != me.id:
         raise HTTPException(403, "Ce cours ne vous est pas assigné — vous ne pouvez pas y ajouter de leçons")
 
-    file_type = _file_type(file.content_type)
+    file_type = _file_type(file.content_type, file.filename)
     if not file_type:
         raise HTTPException(400, f"Type non supporté : {file.content_type}")
 
-    ext      = os.path.splitext(file.filename)[1]
+    ext      = os.path.splitext(file.filename or "")[1].lower()
     filename = f"{uuid.uuid4().hex}{ext}"
     dest     = os.path.join(UPLOAD_DIR, filename)
 
@@ -111,6 +157,22 @@ def delete_lesson(
     db.delete(lesson); db.commit()
 
 
+# ── Détail d'une leçon ────────────────────────────
+@router.get("/{lesson_id}", response_model=LessonOut)
+def get_lesson(
+    lesson_id: int,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(404, "Leçon introuvable")
+
+    _ensure_can_view_lesson(lesson, me, db)
+    return lesson
+
+
+
 # ── Servir le fichier (PDF ou vidéo) ─────────────
 @router.get("/{lesson_id}/file")
 def serve_file(
@@ -127,13 +189,20 @@ def serve_file(
     if not raw_token:
         raise HTTPException(401, "Non authentifié")
     try:
-        verify_token(raw_token)
+        payload = verify_token(raw_token)
+        user_id = int(payload.get("sub"))
     except Exception:
         raise HTTPException(401, "Token invalide")
+
+    me = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not me:
+        raise HTTPException(401, "Utilisateur introuvable ou inactif")
 
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
     if not lesson or not lesson.file_path:
         raise HTTPException(404, "Fichier introuvable")
+
+    _ensure_can_view_lesson(lesson, me, db)
 
     path = os.path.join(UPLOAD_DIR, lesson.file_path)
     if not os.path.exists(path):
