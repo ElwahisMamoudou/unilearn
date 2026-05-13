@@ -125,7 +125,7 @@ export default function TeacherDashboard() {
   const [selCourse,    setSelCourse]    = useState(null)
   const [lessons,      setLessons]      = useState([])
   const [uploadModal,  setUploadModal]  = useState(false)
-  const [lessonForm,   setLessonForm]   = useState({ title: '', duration: '', order: 0 })
+  const [lessonForm,   setLessonForm]   = useState({ title: '', description: '', duration: '', order: 0 })
   const [lessonFile,   setLessonFile]   = useState(null)
   const [uploading,    setUploading]    = useState(false)
   const [dragOver,     setDragOver]     = useState(false)
@@ -190,13 +190,14 @@ export default function TeacherDashboard() {
       const fd = new FormData()
       fd.append('course_id', selCourse.id)
       fd.append('title',     lessonForm.title)
-      fd.append('duration',  lessonForm.duration)
-      fd.append('order',     lessonForm.order)
+      fd.append('description', lessonForm.description)
+      fd.append('duration',    lessonForm.duration)
+      fd.append('order',       Number.isNaN(parseInt(lessonForm.order)) ? 0 : parseInt(lessonForm.order))
       fd.append('file',      lessonFile)
       await api.post('/lessons/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       flash('Leçon ajoutée !')
       setUploadModal(false)
-      setLessonForm({ title: '', duration: '', order: 0 })
+      setLessonForm({ title: '', description: '', duration: '', order: 0 })
       setLessonFile(null)
       const r = await api.get(`/courses/${selCourse.id}/lessons`)
       setLessons(r.data)
@@ -309,7 +310,7 @@ export default function TeacherDashboard() {
 
               {/* Cartes des cours de cette classe */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
-                {grp.courses.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
+                {grp.courses.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', description: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
               </div>
             </div>
           ))}
@@ -325,7 +326,7 @@ export default function TeacherDashboard() {
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
-                {grouped.noClass.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
+                {grouped.noClass.map(c => <CourseCard key={c.id} c={c} expanded={selCourse?.id === c.id} lessons={selCourse?.id === c.id ? lessons : []} onOpen={() => openCourse(c)} onAddLesson={() => { setSelCourse(c); setLessonForm({ title: '', description: '', duration: '', order: c.lesson_count || 0 }); setLessonFile(null); setUploadModal(true); }} onSession={() => { setSessionCourse(c); setSessionForm({ title: '', scheduled_at: '' }); setSessionModal(true) }} onDelete={deleteLesson} navigate={navigate} />)}
               </div>
             </div>
           )}
@@ -347,6 +348,13 @@ export default function TeacherDashboard() {
                   <input className="form-input" required value={lessonForm.title}
                     onChange={e => setLessonForm({ ...lessonForm, title: e.target.value })}
                     placeholder="Ex : Introduction à la cinématique" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Description</label>
+                  <textarea className="form-input" rows={3} value={lessonForm.description}
+                    onChange={e => setLessonForm({ ...lessonForm, description: e.target.value })}
+                    placeholder="Résumé ou consignes de la leçon"
+                    style={{ resize: 'vertical' }} />
                 </div>
                 <div className="form-row">
                   <div className="form-group">
@@ -379,10 +387,10 @@ export default function TeacherDashboard() {
                     ) : (
                       <>
                         <div style={{ fontWeight: 600, marginTop: 8 }}>Glisser-déposer ou cliquer</div>
-                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>PDF, MP4, WebM acceptés</p>
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>PDF, MP4, WebM, OGG, MPEG ou MOV acceptés</p>
                       </>
                     )}
-                    <input ref={fileRef} type="file" accept=".pdf,video/*" style={{ display: 'none' }}
+                    <input ref={fileRef} type="file" accept=".pdf,.mp4,.webm,.ogg,.mpeg,.mpg,.mov,video/*" style={{ display: 'none' }}
                       onChange={e => setLessonFile(e.target.files[0])} />
                   </div>
                 </div>
