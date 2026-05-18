@@ -2,7 +2,7 @@ import os, uuid, random
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime, timezone
 
 from models import get_db, User, Course, Exam, ExamQuestion, ExamSubmission, ExamViolation
@@ -22,14 +22,14 @@ class QuestionIn(BaseModel):
     order:       int = 0
     type:        str          # mcq | truefalse | open | short | upload
     text:        str
-    choices:     Optional[List[str]] = None
+    choices:     Optional[List[Any]] = None
     answer:      Optional[str] = None
     points:      float = 1.0
     explanation: Optional[str] = None
 
 class QuestionOut(BaseModel):
     id: int; order: int; type: str; text: str
-    choices: Optional[List[str]]; answer: Optional[str]; points: float
+    choices: Optional[List[Any]]; answer: Optional[str]; points: float
     explanation: Optional[str] = None
     class Config: from_attributes = True
 
