@@ -66,18 +66,26 @@ export default function HomeworkPage() {
   /* ── Créer un devoir (enseignant) ── */
   const createHomework = async () => {
     if (!selCourse) return flash('Sélectionnez un cours', 'error')
+    if (!hwForm.title.trim()) return flash('Le titre est requis', 'error')
+    if (!hwForm.due_date) return flash('La date limite est requise', 'error')
     try {
-      await api.post('/homeworks', {
-        ...hwForm,
-        course_id: parseInt(selCourse),
-        max_score: parseFloat(hwForm.max_score),
-        due_date: new Date(hwForm.due_date).toISOString(),
-      })
+      const fd = new FormData()
+      fd.append('course_id', selCourse)
+      fd.append('title', hwForm.title.trim())
+      fd.append('description', hwForm.description || '')
+      fd.append('due_date', new Date(hwForm.due_date).toISOString())
+      fd.append('max_score', String(parseFloat(hwForm.max_score) || 20))
+      fd.append('is_published', String(hwForm.is_published))
+
+      await api.post('/homeworks', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       flash('Devoir créé !')
       setCreating(false)
       setHwForm({ title: '', description: '', due_date: '', max_score: 20, is_published: false })
       api.get(`/homeworks/course/${selCourse}`).then(r => setHomeworks(r.data))
-    } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
+    } catch (err) {
+      const d = err.response?.data?.detail
+      flash(Array.isArray(d) ? d.map(x => x.msg).join(' | ') : d || 'Erreur', 'error')
+    }
   }
 
   const deleteHomework = async (id) => {
