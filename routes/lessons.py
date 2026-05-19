@@ -108,8 +108,8 @@ async def upload_lesson(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    # Vérifier que l'enseignant est bien assigné à ce cours
-    if me.role == "teacher" and course.teacher_id != me.id:
+    # Autoriser l'enseignant du cours ET le titulaire de la classe liée au cours
+    if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné — vous ne pouvez pas y ajouter de leçons")
 
     file_type = _file_type(file.content_type, file.filename)
@@ -145,7 +145,9 @@ def delete_lesson(
         raise HTTPException(404, "Leçon introuvable")
 
     course = db.query(Course).filter(Course.id == lesson.course_id).first()
-    if me.role == "teacher" and course.teacher_id != me.id:
+        if not course:
+        raise HTTPException(404, "Cours introuvable")
+    if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné")
 
     # Supprimer le fichier physique
@@ -300,4 +302,4 @@ def get_progress(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    return db.query(Progress).filter_by(user_id=me.id, lesson_id=lesson_id).first()
+        return db.query(Progress).filter_by(user_id=me.id, lesson_id=lesson_id).first()
