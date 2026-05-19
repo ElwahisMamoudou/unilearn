@@ -162,7 +162,17 @@ def list_courses(
     if me.role == "admin":
         q = db.query(Course)
     elif me.role == "teacher":
-        q = db.query(Course).filter(Course.teacher_id == me.id)
+        # Un enseignant peut voir ses propres cours et les cours des classes
+        # dont il est titulaire (ClassGroup.teacher_id).
+        class_group_ids = [
+            row[0] for row in db.query(ClassGroup.id)
+            .filter(ClassGroup.teacher_id == me.id)
+            .all()
+        ]
+        q = db.query(Course).filter(
+            (Course.teacher_id == me.id)
+            | (Course.class_group_id.in_(class_group_ids) if class_group_ids else False)
+        )
     else:
         ids = [e.course_id for e in db.query(Enrollment).filter_by(student_id=me.id).all()]
         if not ids:
@@ -186,8 +196,14 @@ def my_courses(
     if me.role == "admin":
         courses = db.query(Course).order_by(Course.created_at.desc()).all()
     elif me.role == "teacher":
+            class_group_ids = [
+            row[0] for row in db.query(ClassGroup.id)
+            .filter(ClassGroup.teacher_id == me.id)
+            .all()
+        ]
         courses = db.query(Course).filter(
-            Course.teacher_id == me.id
+            (Course.teacher_id == me.id)
+            | (Course.class_group_id.in_(class_group_ids) if class_group_ids else False)
         ).order_by(Course.created_at.desc()).all()
     else:
         ids = [e.course_id for e in db.query(Enrollment).filter_by(student_id=me.id).all()]
