@@ -145,7 +145,7 @@ def delete_lesson(
         raise HTTPException(404, "Leçon introuvable")
 
     course = db.query(Course).filter(Course.id == lesson.course_id).first()
-        if not course:
+    if not course:
         raise HTTPException(404, "Cours introuvable")
     if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné")
