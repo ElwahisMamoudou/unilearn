@@ -425,6 +425,21 @@ export default function ExamPage() {
     }
     return a
   })
+    const examChoicesForPayload = (q) => {
+    if (['open', 'upload', 'short', 'truefalse', 'fill'].includes(q.type)) return null
+    if (q.type === 'match') {
+      return (q.choices || [])
+        .map(pair => ({ left: (pair.left || '').trim(), right: (pair.right || '').trim() }))
+        .filter(pair => pair.left || pair.right)
+    }
+    return (q.choices || []).map(c => typeof c === 'string' ? c.trim() : c)
+  }
+
+  const examAnswerForPayload = (q) => {
+    if (['open', 'upload'].includes(q.type)) return null
+    if (q.type === 'mcq_multi') return JSON.stringify(Array.isArray(q.answer) ? q.answer : [])
+    return q.answer ?? null
+  }
   const addChoice = (qi) => setQuestions(q => {
     const a = [...q]
     const isMatch = a[qi].type === 'match'
@@ -485,10 +500,8 @@ export default function ExamPage() {
       questions: questions.map((q, i) => ({
         order: i, type: q.type, text: q.text.trim(), points: q.points,
         explanation: q.explanation || null,
-        choices: ['open', 'upload', 'short', 'truefalse', 'fill'].includes(q.type) ? null : q.choices,
-        answer: ['open', 'upload'].includes(q.type) ? null
-          : q.type === 'mcq_multi' ? JSON.stringify(Array.isArray(q.answer) ? q.answer : [])
-          : q.answer,
+        choices: examChoicesForPayload(q),
+        answer: examAnswerForPayload(q),
       })),
     }
     try {
