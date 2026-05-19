@@ -7,12 +7,30 @@ from datetime import datetime
 import os, json
 
 os.makedirs("./db", exist_ok=True)
-DATABASE_URL = "sqlite:///./db/unilearn.db"
+DEFAULT_DATABASE_URL = "sqlite:///./db/unilearn.db"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+def _normalize_database_url(url: str) -> str:
+    """Normalize provider DATABASE_URL values for SQLAlchemy."""
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg2://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return url
+
+
+DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+if IS_SQLITE:
+    os.makedirs("./db", exist_ok=True)
+
+engine_kwargs = {"pool_pre_ping": True}
+if IS_SQLITE:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
 
 def get_db():
     db = SessionLocal()
