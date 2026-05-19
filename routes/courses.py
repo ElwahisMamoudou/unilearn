@@ -196,7 +196,7 @@ def my_courses(
     if me.role == "admin":
         courses = db.query(Course).order_by(Course.created_at.desc()).all()
     elif me.role == "teacher":
-            class_group_ids = [
+        class_group_ids = [
             row[0] for row in db.query(ClassGroup.id)
             .filter(ClassGroup.teacher_id == me.id)
             .all()
