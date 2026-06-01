@@ -407,6 +407,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     return _enrich_exam(exam)
 
 
+# Route volontairement gardée au niveau module (colonne 0) : Python 3.11 est strict sur l indentation.
 @router.put("/{exam_id}")
  def update_exam(
     exam_id: int,
