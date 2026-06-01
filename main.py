@@ -122,8 +122,6 @@ def seed():
 async def lifespan(app: FastAPI):
     init_db()
 
-    # Créer tous les dossiers d'upload AVANT le mount StaticFiles
-    # StaticFiles lève une erreur si le dossier n'existe pas au démarrage
     for folder in [
         "uploads",
         "uploads/thumbnails",
@@ -146,9 +144,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ─────────────────────────────────────────────
+# CORS — FIX
+# allow_credentials=True est incompatible avec allow_origins=["*"].
+# On liste les origines explicitement + on accepte tout domaine Vercel
+# via une variable d'env ALLOWED_ORIGINS (séparés par virgule).
+# ─────────────────────────────────────────────
+_default_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://unilearn-hrrk-2x84sbmnr-elwahismamoudous-projects.vercel.app",
+]
+
+_extra = os.getenv("ALLOWED_ORIGINS", "")
+_extra_origins = [o.strip() for o in _extra.split(",") if o.strip()]
+
+ALLOWED_ORIGINS = list(dict.fromkeys(_default_origins + _extra_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # couvre tous les previews Vercel
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,10 +172,6 @@ app.add_middleware(
 
 # ─────────────────────────────────────────────
 # ROUTES API  ← TOUJOURS AVANT app.mount()
-# ─────────────────────────────────────────────
-# RÈGLE FASTAPI : les include_router() doivent précéder app.mount().
-# Un mount est un catch-all : si déclaré en premier, il intercepte
-# toutes les URLs qui commencent par son préfixe, y compris les routes API.
 # ─────────────────────────────────────────────
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
@@ -252,17 +264,6 @@ async def upload(file: UploadFile = File(...)):
 
 # ─────────────────────────────────────────────
 # FICHIERS STATIQUES  ← TOUJOURS APRÈS les routes API
-# ─────────────────────────────────────────────
-#
-# UN SEUL mount "/uploads" sert tout le dossier et ses sous-dossiers :
-#   /uploads/lessons/cours.pdf       ✅  (était 404 avant)
-#   /uploads/thumbnails/cover.jpg    ✅
-#   /uploads/homeworks/sujet.pdf     ✅  (nouveau)
-#   /uploads/submissions/rendu.zip   ✅  (nouveau)
-#
-# Remplace l'ancien mount partiel :
-#   app.mount("/uploads/thumbnails", StaticFiles(...), name="thumbnails")
-# qui laissait tout le reste en 404.
 # ─────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
