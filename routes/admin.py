@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from models import get_db, User, Course, Enrollment, Lesson, Exam
+from models import get_db, User, Course, ClassGroup, Enrollment, Lesson, Exam
 from auth import require_admin, hash_password
 from email_service import send_account_created, send_password_reset
 
@@ -61,7 +61,8 @@ class CourseAdminIn(BaseModel):
     category_id:  Optional[int] = None
     teacher_id:   int
     is_published: bool = False
-
+    class_id:     Optional[int] = None
+    class_group_id: Optional[int] = None
 class CourseTeacherAssignIn(BaseModel):
     teacher_id: int
 
@@ -71,8 +72,10 @@ class CourseOut(BaseModel):
     teacher_name: str = ""; category_name: str = ""
     lesson_count: int = 0; student_count: int = 0
     thumbnail:    Optional[str] = None
+    class_group_id: Optional[int] = None
+    class_id: Optional[int] = None
     class Config: from_attributes = True
-
+    
 class EnrollIn(BaseModel):
     student_ids: List[int]
 
@@ -228,6 +231,8 @@ def list_all_courses(db: Session = Depends(get_db), me: User = Depends(require_a
         lesson_count  = len(c.lessons),
         student_count = len(c.enrollments),
         thumbnail     = c.thumbnail,
+        class_group_id = c.class_group_id,
+        class_id       = c.class_group_id,
     ) for c in db.query(Course).all()]
 
 
@@ -240,10 +245,14 @@ def admin_create_course(
     teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
     if not teacher:
         raise HTTPException(404, "Enseignant introuvable")
+        class_group_id = body.class_group_id or body.class_id
+    if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
+        raise HTTPException(404, "Classe introuvable")
     course = Course(
         title=body.title, description=body.description,
         category_id=body.category_id, teacher_id=body.teacher_id,
         is_published=body.is_published,
+        class_group_id=class_group_id,
     )
     db.add(course); db.commit(); db.refresh(course)
     return CourseOut(
@@ -253,6 +262,8 @@ def admin_create_course(
         category_name = course.category.name if course.category else "",
         lesson_count=0, student_count=0,
         thumbnail=None,
+                class_group_id=course.class_group_id,
+        class_id=course.class_group_id,
     )
 
 
@@ -271,7 +282,11 @@ def admin_update_course(
     course.description  = body.description
     course.category_id  = body.category_id
     course.teacher_id   = body.teacher_id
+    class_group_id = body.class_group_id or body.class_id
+    if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
+        raise HTTPException(404, "Classe introuvable")
     course.is_published = body.is_published
+    course.class_group_id = class_group_id
     db.commit(); db.refresh(course)
     return CourseOut(
         id=course.id, title=course.title, description=course.description,
@@ -281,6 +296,8 @@ def admin_update_course(
         lesson_count  = len(course.lessons),
         student_count = len(course.enrollments),
         thumbnail     = course.thumbnail,
+        class_group_id = course.class_group_id,
+        class_id       = course.class_group_id,
     )
 
 @router.patch("/courses/{course_id}/teacher", response_model=CourseOut)
@@ -308,6 +325,8 @@ def admin_assign_course_teacher(
         lesson_count=len(course.lessons),
         student_count=len(course.enrollments),
         thumbnail=course.thumbnail,
+        class_group_id=course.class_group_id,
+        class_id=course.class_group_id,
     )
 
 @router.delete("/courses/{course_id}", status_code=204)
