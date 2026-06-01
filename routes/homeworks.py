@@ -143,7 +143,7 @@ async def create_homework(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
- _ensure_course_access(course, me, db, manage=True)
+    _ensure_course_access(course, me, db, manage=True)
 
     # Parse de la date ISO
     try:
@@ -194,7 +194,7 @@ def download_homework_file(
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
-     _ensure_homework_access(hw, me, db)
+    _ensure_homework_access(hw, me, db)
 
     # Étudiants : seulement si le devoir est publié
     if me.role == "student" and not hw.is_published:
@@ -228,7 +228,8 @@ def list_homeworks(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-      
+
+
     _ensure_homework_access(hw, me, db)
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
