@@ -408,7 +408,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
 
 
 @router.put("/{exam_id}")
- def update_exam(
+def update_exam(
     exam_id: int,
     body: ExamIn,
     db: Session = Depends(get_db),
@@ -419,7 +419,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-     _check_exam_owner(exam, me, db)
+    _check_exam_owner(exam, me, db)
 
     exam.title             = body.title
     exam.description       = body.description
