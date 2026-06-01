@@ -55,7 +55,6 @@ def _ensure_homework_access(hw: Homework, me: User, db: Session, manage: bool = 
     return course
 
 
-
 # ── Schémas ───────────────────────────────────────
 class GradeIn(BaseModel):
     score:    float
@@ -80,11 +79,6 @@ def _sub_dict(s: HomeworkSubmission) -> dict:
 
 
 async def _save_file(file: UploadFile, subfolder: str = "homeworks") -> str:
-    """
-    Valide et sauvegarde un UploadFile.
-    Retourne le chemin relatif stocké en BDD (ex: "uploads/homeworks/abc123.pdf").
-    Lève HTTPException si extension ou taille invalide.
-    """
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(
@@ -101,62 +95,41 @@ async def _save_file(file: UploadFile, subfolder: str = "homeworks") -> str:
     dest_dir = os.path.join(os.path.dirname(__file__), "..", "uploads", subfolder)
     os.makedirs(dest_dir, exist_ok=True)
 
-    # Nom UUID pour éviter collisions et path traversal
     safe_name = f"{uuid.uuid4().hex}{ext}"
     dest_path = os.path.join(dest_dir, safe_name)
     with open(dest_path, "wb") as f_out:
         f_out.write(contents)
 
-    # Retourner le chemin relatif depuis la racine du projet
     return f"uploads/{subfolder}/{safe_name}"
 
 
-# ── CRÉATION d'un devoir (avec fichier joint optionnel) ──
-#
-# POURQUOI Form() et non Pydantic body ?
-# FastAPI ne peut pas mélanger un body JSON (BaseModel) et un UploadFile
-# dans la même route. Dès qu'un UploadFile est présent, tout le formulaire
-# doit passer en multipart/form-data via Form(...).
-#
-# Le frontend envoie désormais :
-#   const fd = new FormData()
-#   fd.append('course_id', ...)
-#   fd.append('file', file)   ← optionnel
-#   api.post('/homeworks', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-# ─────────────────────────────────────────────────────────
+# ── CRÉATION d'un devoir ──────────────────────────
 @router.post("", status_code=201)
 async def create_homework(
-    # ── Champs formulaire ──────────────────────
     course_id:    int           = Form(...),
     title:        str           = Form(...),
     description:  Optional[str] = Form(None),
-    due_date:     str           = Form(...),        # ISO 8601 string depuis le frontend
+    due_date:     str           = Form(...),
     max_score:    float         = Form(20.0),
     is_published: bool          = Form(False),
-    # ── Fichier joint (optionnel) ───────────────
     file: Optional[UploadFile]  = File(None),
-    # ── Dépendances ────────────────────────────
     db:   Session               = Depends(get_db),
     me:   User                  = Depends(require_teacher),
 ):
-    # Vérification du cours
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
- _ensure_course_access(course, me, db, manage=True)
+    _ensure_course_access(course, me, db, manage=True)  # FIX: 1 espace parasite supprimé
 
-    # Parse de la date ISO
     try:
         due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
     except ValueError:
         raise HTTPException(422, "Format de date invalide. Attendu : ISO 8601 (ex: 2025-06-15T23:59:00)")
 
-    # Sauvegarde du fichier joint si présent
     file_path = None
     if file and file.filename:
         file_path = await _save_file(file, subfolder="homeworks")
 
-    # Création en BDD
     hw = Homework(
         course_id    = course_id,
         title        = title.strip(),
@@ -164,12 +137,11 @@ async def create_homework(
         due_date     = due_dt,
         max_score    = max_score,
         is_published = is_published,
-        file_path    = file_path,   # None si pas de fichier → colonne nullable
+        file_path    = file_path,
     )
     db.add(hw)
     db.flush()
 
-    # Notification aux étudiants si publié immédiatement
     if is_published:
         notify_course_students(
             db, course_id, "homework",
@@ -194,17 +166,14 @@ def download_homework_file(
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
-     _ensure_homework_access(hw, me, db)
+    _ensure_homework_access(hw, me, db)  # FIX: 5 espaces → 4
 
-    # Étudiants : seulement si le devoir est publié
     if me.role == "student" and not hw.is_published:
         raise HTTPException(403, "Devoir non publié")
 
     if not hw.file_path:
         raise HTTPException(404, "Aucun fichier joint à ce devoir")
 
-    # hw.file_path est relatif depuis la racine du projet
-    # ex : "uploads/homeworks/abc123.pdf"
     abs_path = os.path.join(os.path.dirname(__file__), "..", hw.file_path)
     abs_path = os.path.normpath(abs_path)
 
@@ -228,8 +197,8 @@ def list_homeworks(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-      
-    _ensure_homework_access(hw, me, db)
+
+    _ensure_course_access(course, me, db)  # FIX: appel sur course (pas hw inexistant) + indentation correcte
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
     result = []
@@ -255,8 +224,8 @@ def list_homeworks(
             "max_score":        hw.max_score,
             "is_published":     hw.is_published,
             "created_at":       hw.created_at,
-            "file_path":        hw.file_path,       # ← exposé pour permettre le téléchargement
-            "has_file":         bool(hw.file_path), # ← flag pratique côté frontend
+            "file_path":        hw.file_path,
+            "has_file":         bool(hw.file_path),
             "submission_count": len(hw.submissions),
             "my_submission":    my_sub,
             "is_late":          now > due,
@@ -293,7 +262,6 @@ async def update_homework(
     except ValueError:
         raise HTTPException(422, "Format de date invalide")
 
-    # Nouveau fichier → remplace l'ancien
     if file and file.filename:
         if hw.file_path:
             old = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
@@ -323,9 +291,8 @@ def delete_homework(
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
 
-    _ensure_homework_access(hw, me, db, manage=True)
-  
-    # Supprimer le fichier joint s'il existe
+    _ensure_homework_access(hw, me, db, manage=True)  # FIX: 2 espaces → 4 (ligne vide parasite supprimée)
+
     if hw.file_path:
         abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
         if os.path.exists(abs_path):
@@ -355,7 +322,6 @@ async def submit_homework(
     if not enrolled:
         raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
 
-    # Supprimer ancienne soumission si elle existe
     existing = db.query(HomeworkSubmission).filter_by(
         homework_id=hw_id, student_id=me.id
     ).first()
@@ -376,7 +342,7 @@ async def submit_homework(
     sub = HomeworkSubmission(
         homework_id = hw_id,
         student_id  = me.id,
-        file_path   = os.path.basename(rel_path),  # nom de fichier seul, comme avant
+        file_path   = os.path.basename(rel_path),
         comment     = comment or None,
         late        = now > due,
     )
