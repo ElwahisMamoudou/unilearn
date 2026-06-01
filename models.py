@@ -1,6 +1,6 @@
 from sqlalchemy import (
     create_engine, Column, Integer, String,
-    DateTime, ForeignKey, Boolean, Text, Float, Table
+    DateTime, ForeignKey, Boolean, Text, Float, Table, inspect, text
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime
@@ -450,6 +450,101 @@ class VideoSession(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
     course = relationship("Course", back_populates="sessions")
 
+def _column_type(float_type: str, boolean_type: str) -> dict[str, dict[str, str]]:
+    """Colonnes ajoutées après les premières versions sans Alembic."""
+    return {
+        "courses": {
+            "thumbnail": "VARCHAR(300)",
+            "semester_id": "INTEGER",
+            "class_group_id": "INTEGER",
+            "updated_at": "TIMESTAMP",
+        },
+        "homeworks": {
+            "max_score": float_type,
+            "is_published": boolean_type,
+            "file_path": "VARCHAR(400)",
+            "created_at": "TIMESTAMP",
+        },
+        "homework_submissions": {
+            "comment": "TEXT",
+            "score": float_type,
+            "feedback": "TEXT",
+            "graded": boolean_type,
+            "submitted_at": "TIMESTAMP",
+            "late": boolean_type,
+        },
+        "exams": {
+            "duration_min": "INTEGER",
+            "starts_at": "TIMESTAMP",
+            "ends_at": "TIMESTAMP",
+            "is_published": boolean_type,
+            "shuffle_questions": boolean_type,
+            "max_attempts": "INTEGER",
+            "passing_score": float_type,
+            "show_score_after": "VARCHAR(20)",
+            "created_at": "TIMESTAMP",
+        },
+        "exam_questions": {
+            "order": "INTEGER",
+            "choices": "TEXT",
+            "answer": "VARCHAR(200)",
+            "points": float_type,
+            "explanation": "TEXT",
+        },
+        "exam_submissions": {
+            "grade_details": "TEXT",
+            "score": float_type,
+            "max_score": float_type,
+            "graded": boolean_type,
+            "submitted_at": "TIMESTAMP",
+            "file_path": "VARCHAR(400)",
+            "violations": "INTEGER",
+            "forced": boolean_type,
+        },
+        "video_sessions": {
+            "scheduled_at": "TIMESTAMP",
+            "is_active": boolean_type,
+            "ended_at": "TIMESTAMP",
+            "created_at": "TIMESTAMP",
+        },
+        "class_groups": {
+            "code": "VARCHAR(20)",
+            "description": "TEXT",
+            "level": "VARCHAR(50)",
+            "academic_year_id": "INTEGER",
+            "teacher_id": "INTEGER",
+            "max_students": "INTEGER",
+            "is_active": boolean_type,
+            "created_at": "TIMESTAMP",
+        },
+    }
 
+
+def _ensure_runtime_schema():
+    """Ajoute les colonnes manquantes sur les bases déjà déployées.
+
+    `create_all()` crée les nouvelles tables, mais n'altère pas les tables
+    existantes. Railway/PostgreSQL gardait donc d'anciens schémas sans
+    `courses.class_group_id` ou `homeworks.file_path`, ce qui bloquait les
+    créations de cours/devoirs/examens.
+    """
+    dialect = engine.dialect.name
+    float_type = "DOUBLE PRECISION" if dialect == "postgresql" else "REAL"
+    boolean_type = "BOOLEAN" if dialect == "postgresql" else "BOOLEAN"
+    expected = _column_type(float_type, boolean_type)
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    quote = engine.dialect.identifier_preparer.quote
+    with engine.begin() as conn:
+        for table, columns in expected.items():
+            if table not in existing_tables:
+                continue
+            existing_columns = {col["name"] for col in inspector.get_columns(table)}
+            for column, ddl_type in columns.items():
+                if column in existing_columns:
+                    continue
+                conn.execute(text(f"ALTER TABLE {quote(table)} ADD COLUMN {quote(column)} {ddl_type}"))
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_runtime_schema()
