@@ -848,8 +848,9 @@ export default function ClassDetail() {
                             type="button"
                             className="btn btn-outline btn-sm"
                             onClick={() => downloadHomeworkFile(hw)}
+                          >
                             📎 Fichier joint — télécharger
-                           </button>
+                          </button>
                         </div>
                       )}
                       {isStudent && hw.my_submission && (
