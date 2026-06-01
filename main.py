@@ -1,6 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
+from uuid import uuid4
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,11 +10,9 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import Optional
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from models import (
     init_db, SessionLocal,
@@ -41,6 +40,23 @@ from routes import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _csv_env(name: str, default: str = "") -> list[str]:
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def _cors_origins() -> list[str]:
+    origins = _csv_env("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+    frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+    if frontend_url and frontend_url not in origins:
+        origins.append(frontend_url)
+    return origins
+
+
+CORS_ORIGINS = _cors_origins()
+ALLOW_ALL_CORS = CORS_ORIGINS == ["*"]
+CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app").strip() or None
 
 
 def require_role(role: str):
@@ -122,6 +138,8 @@ def seed():
 async def lifespan(app: FastAPI):
     init_db()
 
+    # Créer tous les dossiers d'upload AVANT le mount StaticFiles
+    # StaticFiles lève une erreur si le dossier n'existe pas au démarrage
     for folder in [
         "uploads",
         "uploads/thumbnails",
@@ -144,27 +162,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ─────────────────────────────────────────────
-# CORS
-# allow_credentials=True est incompatible avec allow_origins=["*"].
-# Solution : on utilise allow_origin_regex pour couvrir toutes les
-# origines Vercel + localhost, sans lister chaque URL de preview.
-# ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:8080",
-    ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=None if ALLOW_ALL_CORS else CORS_ORIGIN_REGEX,
+    allow_credentials=not ALLOW_ALL_CORS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ─────────────────────────────────────────────
 # ROUTES API  ← TOUJOURS AVANT app.mount()
+# ─────────────────────────────────────────────
+# RÈGLE FASTAPI : les include_router() doivent précéder app.mount().
+# Un mount est un catch-all : si déclaré en premier, il intercepte
+# toutes les URLs qui commencent par son préfixe, y compris les routes API.
 # ─────────────────────────────────────────────
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
@@ -245,18 +257,48 @@ def change_password(
 # UPLOAD GÉNÉRIQUE
 # ─────────────────────────────────────────────
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",
+    ".mp4", ".webm", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+}
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
-    safe_name = os.path.basename(file.filename or "file")
+async def upload(
+    file: UploadFile = File(...),
+    me: User = Depends(get_current_user),
+):
+    original_name = os.path.basename(file.filename or "file")
+    _, ext = os.path.splitext(original_name)
+    ext = ext.lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Type de fichier non autorisé")
+
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux")
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    safe_name = f"{uuid4().hex}{ext}"
     path = os.path.join(UPLOAD_DIR, safe_name)
     with open(path, "wb") as f:
-        f.write(await file.read())
+        f.write(content)
     return {"url": f"/uploads/{safe_name}"}
 
 
 # ─────────────────────────────────────────────
 # FICHIERS STATIQUES  ← TOUJOURS APRÈS les routes API
+# ─────────────────────────────────────────────
+#
+# UN SEUL mount "/uploads" sert tout le dossier et ses sous-dossiers :
+#   /uploads/lessons/cours.pdf       ✅  (était 404 avant)
+#   /uploads/thumbnails/cover.jpg    ✅
+#   /uploads/homeworks/sujet.pdf     ✅  (nouveau)
+#   /uploads/submissions/rendu.zip   ✅  (nouveau)
+#
+# Remplace l'ancien mount partiel :
+#   app.mount("/uploads/thumbnails", StaticFiles(...), name="thumbnails")
+# qui laissait tout le reste en 404.
 # ─────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
