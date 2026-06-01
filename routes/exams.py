@@ -408,7 +408,12 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
 
 
 @router.put("/{exam_id}")
-def update_exam(exam_id: int, body: ExamIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+ def update_exam(
+    exam_id: int,
+    body: ExamIn,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
