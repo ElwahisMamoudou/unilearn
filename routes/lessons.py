@@ -302,4 +302,4 @@ def get_progress(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-        return db.query(Progress).filter_by(user_id=me.id, lesson_id=lesson_id).first()
+    return db.query(Progress).filter_by(user_id=me.id, lesson_id=lesson_id).first()
