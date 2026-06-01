@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from models import get_db, User, Course, ClassGroup, Enrollment, Exam, ExamQuestion, ExamSubmission, ExamViolation
 from auth import get_current_user
- 
+
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "exams")
@@ -210,7 +210,7 @@ def _build_results(exam: Exam, sub: ExamSubmission) -> List[QuestionResult]:
         student_label = correct_label = None
         is_correct    = None
         score_earned  = 0.0
-        choices       = q.choices  # propriété qui désérialise depuis Text
+        choices       = q.choices
 
         if q.type == "mcq" and choices:
             try:
@@ -351,7 +351,7 @@ def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(
             points      = q.points,
             explanation = q.explanation,
         )
-        eq.choices = q.choices  # setter qui sérialise en JSON Text
+        eq.choices = q.choices
         db.add(eq)
 
     db.commit()
@@ -364,7 +364,7 @@ def list_exams(course_id: int, db: Session = Depends(get_db), me: User = Depends
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-        _ensure_course_access(course, me, db)
+    _ensure_course_access(course, me, db)  # FIX: était après le raise, jamais exécuté
     exams = db.query(Exam).filter(Exam.course_id == course_id).all()
     result = []
     for e in exams:
@@ -379,13 +379,12 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-        
+
     _ensure_course_access(_exam_course(exam, db), me, db)
     if me.role == "student":
         if not _is_accessible(exam):
             status = _exam_status(exam)
             if status == "scheduled":
-                # ✅ FIX : _fmt_date protège contre starts_at None
                 raise HTTPException(403, f"Examen pas encore ouvert — ouverture le {_fmt_date(exam.starts_at)} UTC")
             elif status == "closed":
                 raise HTTPException(403, "La période de cet examen est terminée")
@@ -407,9 +406,8 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     return _enrich_exam(exam)
 
 
-# Route volontairement gardée au niveau module (colonne 0) : Python 3.11 est strict sur l indentation.
 @router.put("/{exam_id}")
- def update_exam(
+def update_exam(
     exam_id: int,
     body: ExamIn,
     db: Session = Depends(get_db),
@@ -420,7 +418,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-     _check_exam_owner(exam, me, db)
+    _check_exam_owner(exam, me, db)
 
     exam.title             = body.title
     exam.description       = body.description
@@ -479,7 +477,6 @@ def set_visibility(exam_id: int, body: VisibilityIn, db: Session = Depends(get_d
     db.commit()
     db.refresh(exam)
     status = _exam_status(exam)
-    # ✅ FIX : _fmt_date protège contre starts_at None
     messages = {
         "draft":     "Examen dépublié.",
         "scheduled": f"Publié — ouverture le {_fmt_date(exam.starts_at)} UTC.",
@@ -547,10 +544,10 @@ def submit_exam(exam_id: int, body: AnswerIn, db: Session = Depends(get_db), me:
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-         _ensure_course_access(_exam_course(exam, db), me, db)
+    _ensure_course_access(_exam_course(exam, db), me, db)  # FIX: indentation excessive supprimée
     if not _is_accessible(exam):
         raise HTTPException(403, "Cet examen n'est pas accessible actuellement")
-        
+
     used = db.query(ExamSubmission).filter_by(exam_id=exam_id, student_id=me.id).count()
     if exam.max_attempts > 0 and used >= exam.max_attempts:
         raise HTTPException(400, f"Vous avez épuisé vos {exam.max_attempts} tentative(s)")
