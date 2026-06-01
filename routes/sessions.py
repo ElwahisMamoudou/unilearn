@@ -5,10 +5,44 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from models import get_db, User, Course, Enrollment, VideoSession
+from models import get_db, User, Course, ClassGroup, Enrollment, VideoSession
 from auth import get_current_user, require_teacher
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
+    if course.teacher_id == teacher_id:
+        return True
+    if not course.class_group_id:
+        return False
+    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
+    if class_group and class_group.teacher_id == teacher_id:
+        return True
+    return db.query(Course.id).filter(
+        Course.class_group_id == course.class_group_id,
+        Course.teacher_id == teacher_id,
+    ).first() is not None
+
+
+def _ensure_course_access(course: Course, me: User, db: Session, manage: bool = False) -> None:
+    if me.role == "admin":
+        return
+    if me.role == "teacher":
+        if _teacher_can_manage_course(course, me.id, db):
+            return
+        raise HTTPException(403, "Ce cours ne vous appartient pas")
+    if manage:
+        raise HTTPException(403, "Accès réservé aux enseignants")
+    enrolled = db.query(Enrollment.id).filter_by(student_id=me.id, course_id=course.id).first()
+    if not enrolled:
+        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+
+
+def _ensure_session_access(session: VideoSession, me: User, db: Session, manage: bool = False) -> None:
+    course = db.query(Course).filter(Course.id == session.course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    _ensure_course_access(course, me, db, manage=manage)
 
 
 # ── Schémas ───────────────────────────────────────
@@ -38,6 +72,8 @@ def list_sessions(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
+    _ensure_course_access(course, me, db)
+        
     sessions = (
         db.query(VideoSession)
         .filter(VideoSession.course_id == course_id)
@@ -62,8 +98,7 @@ def create_session(
     course = db.query(Course).filter(Course.id == body.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if me.role == "teacher" and course.teacher_id != me.id:
-        raise HTTPException(403, "Ce cours ne vous appartient pas")
+   _ensure_course_access(course, me, db, manage=True)
 
     room_id = uuid.uuid4().hex  # identifiant unique de la salle
 
@@ -90,8 +125,7 @@ def start_session(
     s = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not s:
         raise HTTPException(404, "Session introuvable")
-    if me.role not in ("admin",) and s.teacher_id != me.id:
-        raise HTTPException(403, "Seul l'enseignant peut démarrer la session")
+    _ensure_session_access(s, me, db, manage=True)
     s.is_active = True
     s.ended_at  = None
     db.commit(); db.refresh(s)
@@ -109,8 +143,7 @@ def end_session(
     s = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not s:
         raise HTTPException(404, "Session introuvable")
-    if me.role not in ("admin",) and s.teacher_id != me.id:
-        raise HTTPException(403, "Seul l'enseignant peut terminer la session")
+   _ensure_session_access(s, me, db, manage=True)
     s.is_active = False
     s.ended_at  = datetime.utcnow()
     db.commit(); db.refresh(s)
@@ -128,6 +161,5 @@ def delete_session(
     s = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not s:
         raise HTTPException(404, "Session introuvable")
-    if me.role not in ("admin",) and s.teacher_id != me.id:
-        raise HTTPException(403, "Accès refusé")
+   _ensure_session_access(s, me, db, manage=True)
     db.delete(s); db.commit()
