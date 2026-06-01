@@ -145,12 +145,11 @@ export default function ClassDetail() {
 
         if (clr.data.courses) {
           setCourses(clr.data.courses)
-        } else if (isStudent) {
-          const cr = await api.get('/courses/my')
-          setCourses(cr.data)
         } else {
+          const classId = parseInt(id)
+          const belongsToClass = c => Number(c.class_group_id ?? c.class_id) === classId
           const cr = await api.get('/courses/my')
-          setCourses(cr.data.filter(c => c.teacher_id === clr.data.teacher_id))
+          setCourses(cr.data.filter(belongsToClass))
         }
 
         if (isAdmin) {
@@ -163,7 +162,7 @@ export default function ClassDetail() {
           setAllCourses(acr.data)
           setCategories(cats.data)
           if (!clr.data.courses) {
-            setCourses(acr.data.filter(c => c.class_id === parseInt(id)))
+             setCourses(acr.data.filter(c => Number(c.class_group_id ?? c.class_id) === parseInt(id)))
           }
         }
       } catch {}
@@ -300,6 +299,20 @@ export default function ClassDetail() {
     }
   }
 
+  const downloadHomeworkFile = async (hw) => {
+    try {
+      const r = await api.get(`/homeworks/${hw.id}/file`, { responseType: 'blob' })
+      const url = URL.createObjectURL(r.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = hw.file_path?.split('/').pop() || `${hw.title || 'devoir'}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Impossible de télécharger le fichier', 'error')
+    }
+  }
+
   const deleteHomework = async (hwId) => {
     if (!confirm('Supprimer ce devoir ?')) return
     await api.delete(`/homeworks/${hwId}`)
@@ -359,7 +372,7 @@ export default function ClassDetail() {
       if (detail.data.courses) {
         setCourses(detail.data.courses)
       } else {
-        setCourses(acr.data.filter(c => c.class_id === parseInt(id)))
+          setCourses(acr.data.filter(c => Number(c.class_group_id ?? c.class_id) === parseInt(id)))
       }
     } catch (err) {
       flash(err.response?.data?.detail || 'Erreur', 'error')
@@ -491,7 +504,9 @@ export default function ClassDetail() {
   if (!cls)    return <div className="loading-overlay">Classe introuvable</div>
 
   const notInClass = allUsers.filter(u => u.role === 'student' && !students.find(s => s.id === u.id))
-  const manageableCourses = isAdmin ? courses : courses.filter(c => c.teacher_id === user?.id)
+  const courseBelongsToClass = c => Number(c.class_group_id ?? c.class_id) === Number(id)
+  const canManageCourse = c => isAdmin || (isTeacher && (c.teacher_id === user?.id || courseBelongsToClass(c)))
+  const manageableCourses = courses.filter(canManageCourse)
   const firstManageableCourse = manageableCourses[0]
 
   return (
@@ -718,7 +733,7 @@ export default function ClassDetail() {
                           onClick={() => openCourse(c)}>
                           {expanded ? 'Fermer' : 'Leçons'}
                         </button>
-                        {(isAdmin || c.teacher_id === user?.id) && (
+                        {canManageCourse(c) && (
                           <button className="btn btn-outline btn-sm"
                             onClick={() => { setSelCourse(c); setLessonForm({ title: '', duration: '', order: c.lesson_count }); setLessonFile(null); setUploadModal(true); openCourse(c) }}>
                             + Leçon
@@ -829,14 +844,12 @@ export default function ClassDetail() {
                       {/* Indicateur fichier joint */}
                       {hw.has_file && (
                         <div style={{ marginTop: 4 }}>
-                          <a
-                            href={`/api/homeworks/${hw.id}/file`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ fontSize: 11, color: 'var(--blue)', textDecoration: 'none' }}
-                          >
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            onClick={() => downloadHomeworkFile(hw)}
                             📎 Fichier joint — télécharger
-                          </a>
+                           </button>
                         </div>
                       )}
                       {isStudent && hw.my_submission && (
