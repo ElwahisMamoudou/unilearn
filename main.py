@@ -145,26 +145,19 @@ app = FastAPI(
 )
 
 # ─────────────────────────────────────────────
-# CORS — FIX
+# CORS
 # allow_credentials=True est incompatible avec allow_origins=["*"].
-# On liste les origines explicitement + on accepte tout domaine Vercel
-# via une variable d'env ALLOWED_ORIGINS (séparés par virgule).
+# Solution : on utilise allow_origin_regex pour couvrir toutes les
+# origines Vercel + localhost, sans lister chaque URL de preview.
 # ─────────────────────────────────────────────
-_default_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://unilearn-hrrk-2x84sbmnr-elwahismamoudous-projects.vercel.app",
-]
-
-_extra = os.getenv("ALLOWED_ORIGINS", "")
-_extra_origins = [o.strip() for o in _extra.split(",") if o.strip()]
-
-ALLOWED_ORIGINS = list(dict.fromkeys(_default_origins + _extra_origins))
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"https://.*\.vercel\.app",  # couvre tous les previews Vercel
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
