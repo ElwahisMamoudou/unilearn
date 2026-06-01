@@ -114,6 +114,20 @@ export default function HomeworkPage() {
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 
+  const downloadSubmissionFile = async (submission) => {
+    try {
+      const r = await api.get(`/homeworks/${viewSubs.id}/submissions/${submission.id}/file`, { responseType: 'blob' })
+      const url = URL.createObjectURL(r.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = submission.file_path || `soumission_${submission.id}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Impossible de télécharger le fichier', 'error')
+    }
+  }
+  
   /* ── Export Excel ── */
   const exportResults = async (hwId, title) => {
     try {
@@ -164,10 +178,9 @@ export default function HomeworkPage() {
                 )}
                 <div style={{ display: 'flex', gap: 6 }}>
                   {s.file_path && (
-                    <a href={`/api/homeworks/${viewSubs.id}/submissions/${s.id}/file`}
-                      className="btn btn-outline btn-sm" download>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => downloadSubmissionFile(s)}>
                       📥 Fichier
-                    </a>
+                    </button>
                   )}
                   <button className="btn btn-primary btn-sm" onClick={() => {
                     setGradingId(gradingId === s.id ? null : s.id)
