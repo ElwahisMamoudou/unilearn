@@ -73,7 +73,7 @@ def list_sessions(
         raise HTTPException(404, "Cours introuvable")
 
     _ensure_course_access(course, me, db)
-        
+
     sessions = (
         db.query(VideoSession)
         .filter(VideoSession.course_id == course_id)
@@ -98,9 +98,9 @@ def create_session(
     course = db.query(Course).filter(Course.id == body.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-   _ensure_course_access(course, me, db, manage=True)
+    _ensure_course_access(course, me, db, manage=True)
 
-    room_id = uuid.uuid4().hex  # identifiant unique de la salle
+    room_id = uuid.uuid4().hex
 
     session = VideoSession(
         course_id=body.course_id,
@@ -143,7 +143,7 @@ def end_session(
     s = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not s:
         raise HTTPException(404, "Session introuvable")
-   _ensure_session_access(s, me, db, manage=True)
+    _ensure_session_access(s, me, db, manage=True)
     s.is_active = False
     s.ended_at  = datetime.utcnow()
     db.commit(); db.refresh(s)
@@ -161,5 +161,5 @@ def delete_session(
     s = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not s:
         raise HTTPException(404, "Session introuvable")
-   _ensure_session_access(s, me, db, manage=True)
+    _ensure_session_access(s, me, db, manage=True)
     db.delete(s); db.commit()
