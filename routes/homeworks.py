@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
 
-from models import get_db, User, Course, Enrollment, Homework, HomeworkSubmission
+from models import get_db, User, Course, ClassGroup, Enrollment, Homework, HomeworkSubmission
 from auth import get_current_user, require_teacher
 from routes.notifications import create_notification, notify_course_students
 
@@ -18,6 +18,42 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXT = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".zip", ".txt",
                ".xls", ".xlsx", ".ppt", ".pptx", ".rar", ".7z", ".gif", ".webp", ".csv"}
 MAX_SIZE_MB = 50
+
+def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
+    if course.teacher_id == teacher_id:
+        return True
+    if not course.class_group_id:
+        return False
+    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
+    if class_group and class_group.teacher_id == teacher_id:
+        return True
+    return db.query(Course.id).filter(
+        Course.class_group_id == course.class_group_id,
+        Course.teacher_id == teacher_id,
+    ).first() is not None
+
+
+def _ensure_course_access(course: Course, me: User, db: Session, manage: bool = False) -> None:
+    if me.role == "admin":
+        return
+    if me.role == "teacher":
+        if _teacher_can_manage_course(course, me.id, db):
+            return
+        raise HTTPException(403, "Ce cours ne vous est pas assigné")
+    if manage:
+        raise HTTPException(403, "Accès réservé aux enseignants")
+    enrolled = db.query(Enrollment.id).filter_by(student_id=me.id, course_id=course.id).first()
+    if not enrolled:
+        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+
+
+def _ensure_homework_access(hw: Homework, me: User, db: Session, manage: bool = False) -> Course:
+    course = db.query(Course).filter(Course.id == hw.course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    _ensure_course_access(course, me, db, manage=manage)
+    return course
+
 
 
 # ── Schémas ───────────────────────────────────────
@@ -107,8 +143,7 @@ async def create_homework(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if me.role == "teacher" and course.teacher_id != me.id:
-        raise HTTPException(403, "Ce cours ne vous est pas assigné")
+ _ensure_course_access(course, me, db, manage=True)
 
     # Parse de la date ISO
     try:
@@ -159,6 +194,7 @@ def download_homework_file(
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
+     _ensure_homework_access(hw, me, db)
 
     # Étudiants : seulement si le devoir est publié
     if me.role == "student" and not hw.is_published:
@@ -192,6 +228,8 @@ def list_homeworks(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
+      
+    _ensure_homework_access(hw, me, db)
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
     result = []
@@ -244,6 +282,12 @@ async def update_homework(
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
 
+    _ensure_homework_access(hw, me, db, manage=True)
+    new_course = db.query(Course).filter(Course.id == course_id).first()
+    if not new_course:
+        raise HTTPException(404, "Cours introuvable")
+    _ensure_course_access(new_course, me, db, manage=True)
+
     try:
         due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
     except ValueError:
@@ -257,6 +301,7 @@ async def update_homework(
                 os.remove(old)
         hw.file_path = await _save_file(file, subfolder="homeworks")
 
+    hw.course_id    = course_id
     hw.title        = title.strip()
     hw.description  = description
     hw.due_date     = due_dt
@@ -278,6 +323,8 @@ def delete_homework(
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
 
+    _ensure_homework_access(hw, me, db, manage=True)
+  
     # Supprimer le fichier joint s'il existe
     if hw.file_path:
         abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
@@ -348,6 +395,11 @@ def list_submissions(
 ):
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
+
+    hw = db.query(Homework).filter(Homework.id == hw_id).first()
+    if not hw:
+        raise HTTPException(404, "Devoir introuvable")
+    _ensure_homework_access(hw, me, db, manage=True)
     subs = db.query(HomeworkSubmission).filter_by(homework_id=hw_id).all()
     return [_sub_dict(s) for s in subs]
 
@@ -363,10 +415,15 @@ def download_submission(
     sub = db.query(HomeworkSubmission).filter_by(id=sub_id, homework_id=hw_id).first()
     if not sub:
         raise HTTPException(404, "Soumission introuvable")
+    hw = db.query(Homework).filter(Homework.id == hw_id).first()
+    if not hw:
+        raise HTTPException(404, "Devoir introuvable")
     if me.role == "student" and sub.student_id != me.id:
         raise HTTPException(403, "Accès refusé")
+    if me.role in ("admin", "teacher"):
+        _ensure_homework_access(hw, me, db, manage=True)
 
-    path = os.path.join(UPLOAD_DIR, sub.file_path)
+    path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "uploads", "submissions", sub.file_path))
     if not os.path.exists(path):
         raise HTTPException(404, "Fichier introuvable")
     return FileResponse(path, filename=sub.file_path)
@@ -383,6 +440,10 @@ def grade_submission(
 ):
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
+    hw = db.query(Homework).filter(Homework.id == hw_id).first()
+    if not hw:
+        raise HTTPException(404, "Devoir introuvable")
+    _ensure_homework_access(hw, me, db, manage=True)
     sub = db.query(HomeworkSubmission).filter_by(id=sub_id, homework_id=hw_id).first()
     if not sub:
         raise HTTPException(404, "Soumission introuvable")
