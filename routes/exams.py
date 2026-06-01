@@ -5,9 +5,9 @@ from sqlalchemy.orm import Session
 from typing import Any, List, Optional
 from datetime import datetime, timezone
 
-from models import get_db, User, Course, Exam, ExamQuestion, ExamSubmission, ExamViolation
+from models import get_db, User, Course, ClassGroup, Enrollment, Exam, ExamQuestion, ExamSubmission, ExamViolation
 from auth import get_current_user
-
+ 
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "exams")
@@ -118,12 +118,43 @@ def _fmt_date(dt) -> str:
     return dt.strftime('%d/%m/%Y à %H:%M')
 
 
-def _check_exam_owner(exam: Exam, me: User):
+def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
+    if course.teacher_id == teacher_id:
+        return True
+    if not course.class_group_id:
+        return False
+    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
+    if class_group and class_group.teacher_id == teacher_id:
+        return True
+    return db.query(Course.id).filter(
+        Course.class_group_id == course.class_group_id,
+        Course.teacher_id == teacher_id,
+    ).first() is not None
+
+
+def _ensure_course_access(course: Course, me: User, db: Session, manage: bool = False) -> None:
     if me.role == "admin":
         return
-    if me.role == "teacher" and exam.course.teacher_id == me.id:
-        return
-    raise HTTPException(403, "Accès refusé")
+    if me.role == "teacher":
+        if _teacher_can_manage_course(course, me.id, db):
+            return
+        raise HTTPException(403, "Ce cours ne vous appartient pas")
+    if manage:
+        raise HTTPException(403, "Accès réservé aux enseignants")
+    enrolled = db.query(Enrollment.id).filter_by(student_id=me.id, course_id=course.id).first()
+    if not enrolled:
+        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+
+
+def _exam_course(exam: Exam, db: Session) -> Course:
+    course = exam.course or db.query(Course).filter(Course.id == exam.course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    return course
+
+
+def _check_exam_owner(exam: Exam, me: User, db: Session):
+    _ensure_course_access(_exam_course(exam, db), me, db, manage=True)
 
 
 def _is_accessible(exam: Exam) -> bool:
@@ -292,8 +323,7 @@ def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(
     course = db.query(Course).filter(Course.id == body.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if me.role == "teacher" and course.teacher_id != me.id:
-        raise HTTPException(403, "Ce cours ne vous appartient pas")
+    _ensure_course_access(course, me, db, manage=True)
 
     exam = Exam(
         course_id         = body.course_id,
@@ -334,6 +364,7 @@ def list_exams(course_id: int, db: Session = Depends(get_db), me: User = Depends
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
+        _ensure_course_access(course, me, db)
     exams = db.query(Exam).filter(Exam.course_id == course_id).all()
     result = []
     for e in exams:
@@ -348,7 +379,8 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-
+        
+    _ensure_course_access(_exam_course(exam, db), me, db)
     if me.role == "student":
         if not _is_accessible(exam):
             status = _exam_status(exam)
@@ -382,7 +414,7 @@ def update_exam(exam_id: int, body: ExamIn, db: Session = Depends(get_db), me: U
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-    _check_exam_owner(exam, me)
+     _check_exam_owner(exam, me, db)
 
     exam.title             = body.title
     exam.description       = body.description
@@ -420,7 +452,7 @@ def delete_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-    _check_exam_owner(exam, me)
+    _check_exam_owner(exam, me, db)
     db.delete(exam)
     db.commit()
 
@@ -436,7 +468,7 @@ def set_visibility(exam_id: int, body: VisibilityIn, db: Session = Depends(get_d
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-    _check_exam_owner(exam, me)
+    _check_exam_owner(exam, me, db)
     exam.is_published = body.is_published
     db.commit()
     db.refresh(exam)
@@ -458,7 +490,7 @@ def schedule_exam(exam_id: int, body: ScheduleIn, db: Session = Depends(get_db),
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-    _check_exam_owner(exam, me)
+    _check_exam_owner(exam, me, db)
     if body.starts_at and body.ends_at:
         s = body.starts_at if body.starts_at.tzinfo else body.starts_at.replace(tzinfo=timezone.utc)
         e = body.ends_at   if body.ends_at.tzinfo   else body.ends_at.replace(tzinfo=timezone.utc)
@@ -483,6 +515,12 @@ async def upload_answer_file(
 ):
     if me.role != "student":
         raise HTTPException(403, "Seuls les étudiants peuvent uploader")
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(404, "Examen introuvable")
+    _ensure_course_access(_exam_course(exam, db), me, db)
+    if not _is_accessible(exam):
+        raise HTTPException(403, "Cet examen n'est pas accessible actuellement")
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(400, "Fichier trop volumineux (max 10 Mo)")
@@ -503,9 +541,10 @@ def submit_exam(exam_id: int, body: AnswerIn, db: Session = Depends(get_db), me:
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
+         _ensure_course_access(_exam_course(exam, db), me, db)
     if not _is_accessible(exam):
         raise HTTPException(403, "Cet examen n'est pas accessible actuellement")
-
+        
     used = db.query(ExamSubmission).filter_by(exam_id=exam_id, student_id=me.id).count()
     if exam.max_attempts > 0 and used >= exam.max_attempts:
         raise HTTPException(400, f"Vous avez épuisé vos {exam.max_attempts} tentative(s)")
@@ -547,6 +586,7 @@ def list_submissions(exam_id: int, db: Session = Depends(get_db), me: User = Dep
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
+    _check_exam_owner(exam, me, db)
     subs = db.query(ExamSubmission).filter_by(exam_id=exam_id).all()
     return [_serialize_sub(s, exam, db) for s in subs]
 
@@ -568,7 +608,7 @@ def grade_submission(sub_id: int, body: GradeIn, db: Session = Depends(get_db), 
     if not sub:
         raise HTTPException(404, "Soumission introuvable")
     exam = sub.exam
-
+    _check_exam_owner(exam, me, db)
     current = sub.grade_details or {}
     current.update({str(k): v for k, v in body.grades.items()})
     sub.grade_details = current
