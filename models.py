@@ -37,7 +37,7 @@ def _normalize_database_url(url: str) -> str:
     return url
 
 
-DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
+DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./db/unilearn.db"))
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 if IS_SQLITE:
@@ -564,6 +564,7 @@ def _ensure_runtime_schema():
                 if column in existing_columns:
                     continue
                 conn.execute(text(f"ALTER TABLE {quote(table)} ADD COLUMN {quote(column)} {ddl_type}"))
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_runtime_schema()
