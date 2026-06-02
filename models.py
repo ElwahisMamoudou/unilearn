@@ -6,8 +6,27 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime
 import os, json
 
-os.makedirs("./db", exist_ok=True)
-DEFAULT_DATABASE_URL = "sqlite:///./db/unilearn.db"
+def get_database_url() -> str:
+    """Return the configured database URL.
+
+    Railway provides PostgreSQL through DATABASE_URL. For local development,
+    the app keeps the existing SQLite fallback.
+    """
+    url = os.getenv("DATABASE_URL", "sqlite:///./db/unilearn.db")
+    if url.startswith("postgres://"):
+        # SQLAlchemy 2 expects the postgresql dialect name.
+        url = url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
+DATABASE_URL = get_database_url()
+
+engine_kwargs = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    os.makedirs("./db", exist_ok=True)
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 def _normalize_database_url(url: str) -> str:
     """Normalize provider DATABASE_URL values for SQLAlchemy."""
