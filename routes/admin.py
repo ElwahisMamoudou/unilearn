@@ -12,8 +12,6 @@ from email_service import send_account_created, send_password_reset
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-# ── Générateur de mot de passe ────────────────────
-
 def generate_password(length: int = 10) -> str:
     letters_up  = "ABCDEFGHJKMNPQRSTUVWXYZ"
     letters_low = "abcdefghjkmnpqrstuvwxyz"
@@ -30,8 +28,6 @@ def generate_password(length: int = 10) -> str:
     random.shuffle(pwd)
     return "".join(pwd)
 
-
-# ── Schémas ───────────────────────────────────────
 
 class UserOut(BaseModel):
     id: int; name: str; email: str; role: str
@@ -56,13 +52,14 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class CourseAdminIn(BaseModel):
-    title:        str
-    description:  Optional[str] = None
-    category_id:  Optional[int] = None
-    teacher_id:   int
-    is_published: bool = False
-    class_id:     Optional[int] = None
+    title:          str
+    description:    Optional[str] = None
+    category_id:    Optional[int] = None
+    teacher_id:     int
+    is_published:   bool = False
+    class_id:       Optional[int] = None
     class_group_id: Optional[int] = None
+
 class CourseTeacherAssignIn(BaseModel):
     teacher_id: int
 
@@ -73,9 +70,9 @@ class CourseOut(BaseModel):
     lesson_count: int = 0; student_count: int = 0
     thumbnail:    Optional[str] = None
     class_group_id: Optional[int] = None
-    class_id: Optional[int] = None
+    class_id:       Optional[int] = None
     class Config: from_attributes = True
-    
+
 class EnrollIn(BaseModel):
     student_ids: List[int]
 
@@ -84,8 +81,6 @@ class StatsOut(BaseModel):
     total_courses: int; total_lessons: int
     total_enrollments: int; total_exams: int
 
-
-# ── Stats ─────────────────────────────────────────
 
 @router.get("/stats", response_model=StatsOut)
 def get_stats(db: Session = Depends(get_db), me: User = Depends(require_admin)):
@@ -99,8 +94,6 @@ def get_stats(db: Session = Depends(get_db), me: User = Depends(require_admin)):
         total_exams       = db.query(Exam).count(),
     )
 
-
-# ── Utilisateurs ──────────────────────────────────
 
 @router.get("/users", response_model=List[UserOut])
 def list_users(db: Session = Depends(get_db), me: User = Depends(require_admin)):
@@ -119,7 +112,6 @@ def create_user(
         raise HTTPException(400, "Rôle invalide")
 
     plain_pwd = generate_password()
-
     user = User(
         name       = body.name.strip(),
         email      = body.email,
@@ -181,8 +173,6 @@ def delete_user(
     db.delete(user); db.commit()
 
 
-# ── Réinitialisation mot de passe ─────────────────
-
 @router.post("/users/{user_id}/reset-password")
 def reset_user_password(
     user_id: int,
@@ -219,18 +209,16 @@ def reset_user_password(
     }
 
 
-# ── Cours ─────────────────────────────────────────
-
 @router.get("/courses", response_model=List[CourseOut])
 def list_all_courses(db: Session = Depends(get_db), me: User = Depends(require_admin)):
     return [CourseOut(
         id=c.id, title=c.title, description=c.description,
         is_published=c.is_published, teacher_id=c.teacher_id,
-        teacher_name  = c.teacher.name  if c.teacher  else "",
-        category_name = c.category.name if c.category else "",
-        lesson_count  = len(c.lessons),
-        student_count = len(c.enrollments),
-        thumbnail     = c.thumbnail,
+        teacher_name   = c.teacher.name  if c.teacher  else "",
+        category_name  = c.category.name if c.category else "",
+        lesson_count   = len(c.lessons),
+        student_count  = len(c.enrollments),
+        thumbnail      = c.thumbnail,
         class_group_id = c.class_group_id,
         class_id       = c.class_group_id,
     ) for c in db.query(Course).all()]
@@ -245,25 +233,30 @@ def admin_create_course(
     teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
     if not teacher:
         raise HTTPException(404, "Enseignant introuvable")
-        class_group_id = body.class_group_id or body.class_id
+
+    class_group_id = body.class_group_id or body.class_id  # FIX: était indenté sous le raise
     if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
         raise HTTPException(404, "Classe introuvable")
+
     course = Course(
-        title=body.title, description=body.description,
-        category_id=body.category_id, teacher_id=body.teacher_id,
-        is_published=body.is_published,
-        class_group_id=class_group_id,
+        title          = body.title,
+        description    = body.description,
+        category_id    = body.category_id,
+        teacher_id     = body.teacher_id,
+        is_published   = body.is_published,
+        class_group_id = class_group_id,
     )
     db.add(course); db.commit(); db.refresh(course)
     return CourseOut(
         id=course.id, title=course.title, description=course.description,
         is_published=course.is_published, teacher_id=course.teacher_id,
-        teacher_name  = teacher.name,
-        category_name = course.category.name if course.category else "",
-        lesson_count=0, student_count=0,
-        thumbnail=None,
-                class_group_id=course.class_group_id,
-        class_id=course.class_group_id,
+        teacher_name   = teacher.name,
+        category_name  = course.category.name if course.category else "",
+        lesson_count   = 0,
+        student_count  = 0,
+        thumbnail      = None,
+        class_group_id = course.class_group_id,
+        class_id       = course.class_group_id,
     )
 
 
@@ -274,39 +267,6 @@ def admin_update_course(
     db:        Session = Depends(get_db),
     me:        User    = Depends(require_admin),
 ):
-    course  = db.query(Course).filter(Course.id == course_id).first()
-    if not course: raise HTTPException(404, "Cours introuvable")
-    teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
-    if not teacher: raise HTTPException(404, "Enseignant introuvable")
-    course.title        = body.title
-    course.description  = body.description
-    course.category_id  = body.category_id
-    course.teacher_id   = body.teacher_id
-    class_group_id = body.class_group_id or body.class_id
-    if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
-        raise HTTPException(404, "Classe introuvable")
-    course.is_published = body.is_published
-    course.class_group_id = class_group_id
-    db.commit(); db.refresh(course)
-    return CourseOut(
-        id=course.id, title=course.title, description=course.description,
-        is_published=course.is_published, teacher_id=course.teacher_id,
-        teacher_name  = teacher.name,
-        category_name = course.category.name if course.category else "",
-        lesson_count  = len(course.lessons),
-        student_count = len(course.enrollments),
-        thumbnail     = course.thumbnail,
-        class_group_id = course.class_group_id,
-        class_id       = course.class_group_id,
-    )
-
-@router.patch("/courses/{course_id}/teacher", response_model=CourseOut)
-def admin_assign_course_teacher(
-    course_id: int,
-    body: CourseTeacherAssignIn,
-    db: Session = Depends(get_db),
-    me: User = Depends(require_admin),
-):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
@@ -314,33 +274,69 @@ def admin_assign_course_teacher(
     if not teacher:
         raise HTTPException(404, "Enseignant introuvable")
 
-    course.teacher_id = teacher.id
-    db.commit()
-    db.refresh(course)
+    class_group_id = body.class_group_id or body.class_id
+    if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
+        raise HTTPException(404, "Classe introuvable")
+
+    course.title          = body.title
+    course.description    = body.description
+    course.category_id    = body.category_id
+    course.teacher_id     = body.teacher_id
+    course.is_published   = body.is_published
+    course.class_group_id = class_group_id
+    db.commit(); db.refresh(course)
     return CourseOut(
         id=course.id, title=course.title, description=course.description,
         is_published=course.is_published, teacher_id=course.teacher_id,
-        teacher_name=teacher.name,
-        category_name=course.category.name if course.category else "",
-        lesson_count=len(course.lessons),
-        student_count=len(course.enrollments),
-        thumbnail=course.thumbnail,
-        class_group_id=course.class_group_id,
-        class_id=course.class_group_id,
+        teacher_name   = teacher.name,
+        category_name  = course.category.name if course.category else "",
+        lesson_count   = len(course.lessons),
+        student_count  = len(course.enrollments),
+        thumbnail      = course.thumbnail,
+        class_group_id = course.class_group_id,
+        class_id       = course.class_group_id,
     )
+
+
+@router.patch("/courses/{course_id}/teacher", response_model=CourseOut)
+def admin_assign_course_teacher(
+    course_id: int,
+    body:      CourseTeacherAssignIn,
+    db:        Session = Depends(get_db),
+    me:        User    = Depends(require_admin),
+):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
+    teacher = db.query(User).filter(User.id == body.teacher_id, User.role == "teacher").first()
+    if not teacher:
+        raise HTTPException(404, "Enseignant introuvable")
+    course.teacher_id = teacher.id
+    db.commit(); db.refresh(course)
+    return CourseOut(
+        id=course.id, title=course.title, description=course.description,
+        is_published=course.is_published, teacher_id=course.teacher_id,
+        teacher_name   = teacher.name,
+        category_name  = course.category.name if course.category else "",
+        lesson_count   = len(course.lessons),
+        student_count  = len(course.enrollments),
+        thumbnail      = course.thumbnail,
+        class_group_id = course.class_group_id,
+        class_id       = course.class_group_id,
+    )
+
 
 @router.delete("/courses/{course_id}", status_code=204)
 def admin_delete_course(
     course_id: int,
-    db: Session = Depends(get_db),
-    me: User    = Depends(require_admin),
+    db:        Session = Depends(get_db),
+    me:        User    = Depends(require_admin),
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
-    if not course: raise HTTPException(404, "Cours introuvable")
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
     db.delete(course); db.commit()
 
-
-# ── Inscriptions ──────────────────────────────────
 
 @router.get("/courses/{course_id}/students", response_model=List[UserOut])
 def list_enrolled(course_id: int, db: Session = Depends(get_db), me: User = Depends(require_admin)):
@@ -355,7 +351,8 @@ def admin_enroll(
     me:        User    = Depends(require_admin),
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
-    if not course: raise HTTPException(404, "Cours introuvable")
+    if not course:
+        raise HTTPException(404, "Cours introuvable")
     enrolled, already = [], []
     for sid in body.student_ids:
         student = db.query(User).filter(User.id == sid, User.role == "student").first()
@@ -371,15 +368,14 @@ def admin_enroll(
 @router.delete("/courses/{course_id}/students/{student_id}", status_code=204)
 def admin_unenroll(
     course_id: int, student_id: int,
-    db: Session = Depends(get_db),
-    me: User    = Depends(require_admin),
+    db:        Session = Depends(get_db),
+    me:        User    = Depends(require_admin),
 ):
     e = db.query(Enrollment).filter_by(course_id=course_id, student_id=student_id).first()
-    if not e: raise HTTPException(404, "Inscription introuvable")
+    if not e:
+        raise HTTPException(404, "Inscription introuvable")
     db.delete(e); db.commit()
 
-
-# ── Thumbnail cours ───────────────────────────────
 
 THUMB_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads", "thumbnails")
 
@@ -404,23 +400,18 @@ async def upload_course_thumbnail(
 
     os.makedirs(THUMB_DIR, exist_ok=True)
 
-    # Supprimer l'ancienne thumbnail
     if course.thumbnail:
-        old_name = os.path.basename(course.thumbnail)
-        old_path = os.path.join(THUMB_DIR, old_name)
+        old_path = os.path.join(THUMB_DIR, os.path.basename(course.thumbnail))
         if os.path.exists(old_path):
             os.remove(old_path)
 
     ext      = os.path.splitext(file.filename or "image.jpg")[1].lower() or ".jpg"
     filename = f"thumb_{course_id}_{uuid.uuid4().hex[:8]}{ext}"
-    dest     = os.path.join(THUMB_DIR, filename)
-
-    with open(dest, "wb") as f:
+    with open(os.path.join(THUMB_DIR, filename), "wb") as f:
         f.write(contents)
 
     course.thumbnail = f"/uploads/thumbnails/{filename}"
     db.commit()
-
     return {"thumbnail": course.thumbnail, "ok": True}
 
 
@@ -433,10 +424,8 @@ def delete_course_thumbnail(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-
     if course.thumbnail:
-        old_name = os.path.basename(course.thumbnail)
-        old_path = os.path.join(THUMB_DIR, old_name)
+        old_path = os.path.join(THUMB_DIR, os.path.basename(course.thumbnail))
         if os.path.exists(old_path):
             os.remove(old_path)
         course.thumbnail = None
