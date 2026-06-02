@@ -219,7 +219,18 @@ app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
 
+# ─────────────────────────────────────────────
+# HEALTHCHECK
+# ─────────────────────────────────────────────
+@app.get("/api/health")
+def api_health():
+    return {"ok": True, "service": "unilearn-api"}
 
+
+@app.get("/health")
+def health():
+    return {"ok": True, "service": "unilearn-api"}
+    
 # ─────────────────────────────────────────────
 # DASHBOARD
 # ─────────────────────────────────────────────
