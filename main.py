@@ -59,6 +59,8 @@ def get_cors_origins() -> list[str]:
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://unilearn-hrrk.vercel.app",
+        "https://unilearn-hrrk-git-main-elwahismamoudous-projects.vercel.app",
     }
 
     origins.update(_split_env_list(os.getenv("FRONTEND_URL")))
