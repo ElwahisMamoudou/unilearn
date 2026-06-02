@@ -41,6 +41,30 @@ from routes import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def _split_env_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
+
+
+def get_cors_origins() -> list[str]:
+    """Return explicit browser origins allowed to call the API.
+
+    Browsers reject credentialed CORS responses when the API replies with
+    Access-Control-Allow-Origin: *. We therefore keep a concrete allow-list,
+    while the Vercel preview domains are handled by allow_origin_regex below.
+    """
+    origins = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    }
+
+    origins.update(_split_env_list(os.getenv("FRONTEND_URL")))
+    origins.update(_split_env_list(os.getenv("CORS_ORIGINS")))
+
+    return sorted(origins)
 
 def _csv_env(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
@@ -164,8 +188,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_origin_regex=None if ALLOW_ALL_CORS else CORS_ORIGIN_REGEX,
+    allow_origins=get_cors_origins(),
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=not ALLOW_ALL_CORS,
     allow_methods=["*"],
     allow_headers=["*"],
