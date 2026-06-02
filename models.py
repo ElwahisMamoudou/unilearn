@@ -6,50 +6,35 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime
 import os, json
 
-def get_database_url() -> str:
-    """Return the configured database URL.
 
-    Railway provides PostgreSQL through DATABASE_URL. For local development,
-    the app keeps the existing SQLite fallback.
-    """
+# ══════════════════════════════════════════════════════
+#  CONNEXION BASE DE DONNÉES
+# ══════════════════════════════════════════════════════
+
+def _get_database_url() -> str:
     url = os.getenv("DATABASE_URL", "sqlite:///./db/unilearn.db")
+    # Railway fournit postgres:// ou postgresql:// — SQLAlchemy 2 exige psycopg2
     if url.startswith("postgres://"):
-        # SQLAlchemy 2 expects the postgresql dialect name.
-        url = url.replace("postgres://", "postgresql://", 1)
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://") and "+psycopg2" not in url:
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
 
-DATABASE_URL = get_database_url()
-
-engine_kwargs = {"pool_pre_ping": True}
-if DATABASE_URL.startswith("sqlite"):
-    os.makedirs("./db", exist_ok=True)
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
-
-engine = create_engine(DATABASE_URL, **engine_kwargs)
-
-def _normalize_database_url(url: str) -> str:
-    """Normalize provider DATABASE_URL values for SQLAlchemy."""
-    if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql+psycopg2://", 1)
-    if url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
-    return url
-
-
-DATABASE_URL = _normalize_database_url(os.getenv("DATABASE_URL", "sqlite:///./db/unilearn.db"))
-IS_SQLITE = DATABASE_URL.startswith("sqlite")
+DATABASE_URL = _get_database_url()
+IS_SQLITE    = DATABASE_URL.startswith("sqlite")
 
 if IS_SQLITE:
     os.makedirs("./db", exist_ok=True)
 
-engine_kwargs = {"pool_pre_ping": True}
+engine_kwargs: dict = {"pool_pre_ping": True}
 if IS_SQLITE:
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 
-engine = create_engine(DATABASE_URL, **engine_kwargs)
+engine       = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+Base         = declarative_base()
+
 
 def get_db():
     db = SessionLocal()
@@ -81,25 +66,25 @@ class User(Base):
     name        = Column(String(120), nullable=False)
     email       = Column(String(200), unique=True, index=True, nullable=False)
     hashed_pwd  = Column(String(200), nullable=False)
-    role        = Column(String(20), default="student")   # student | teacher | admin
+    role        = Column(String(20), default="student")
     avatar_url  = Column(String(300), nullable=True)
-    matricule   = Column(String(50), nullable=True, unique=True)
+    matricule   = Column(String(50),  nullable=True, unique=True)
     created_at  = Column(DateTime, default=datetime.utcnow)
     is_active   = Column(Boolean, default=True)
 
-    enrollments          = relationship("Enrollment",          back_populates="student")
-    courses              = relationship("Course",              back_populates="teacher")
-    progress             = relationship("Progress",            back_populates="user")
-    sent_messages        = relationship("Message",             foreign_keys="Message.sender_id",   back_populates="sender")
-    received_messages    = relationship("Message",             foreign_keys="Message.receiver_id", back_populates="receiver")
-    forum_questions      = relationship("ForumQuestion",       back_populates="author")
-    forum_replies        = relationship("ForumReply",          back_populates="author")
-    exam_submissions     = relationship("ExamSubmission",      back_populates="student")
-    notifications        = relationship("Notification",        back_populates="user",    cascade="all, delete")
-    login_history        = relationship("LoginHistory",        back_populates="user",    cascade="all, delete")
-    homework_submissions = relationship("HomeworkSubmission",  back_populates="student")
-    class_groups         = relationship("ClassGroup",          secondary=class_students, back_populates="students")
-    managed_classes      = relationship("ClassGroup",          back_populates="teacher", foreign_keys="ClassGroup.teacher_id")
+    enrollments          = relationship("Enrollment",         back_populates="student")
+    courses              = relationship("Course",             back_populates="teacher")
+    progress             = relationship("Progress",           back_populates="user")
+    sent_messages        = relationship("Message",            foreign_keys="Message.sender_id",   back_populates="sender")
+    received_messages    = relationship("Message",            foreign_keys="Message.receiver_id", back_populates="receiver")
+    forum_questions      = relationship("ForumQuestion",      back_populates="author")
+    forum_replies        = relationship("ForumReply",         back_populates="author")
+    exam_submissions     = relationship("ExamSubmission",     back_populates="student")
+    notifications        = relationship("Notification",       back_populates="user",    cascade="all, delete")
+    login_history        = relationship("LoginHistory",       back_populates="user",    cascade="all, delete")
+    homework_submissions = relationship("HomeworkSubmission", back_populates="student")
+    class_groups         = relationship("ClassGroup",         secondary=class_students, back_populates="students")
+    managed_classes      = relationship("ClassGroup",         back_populates="teacher", foreign_keys="ClassGroup.teacher_id")
 
 
 class LoginHistory(Base):
@@ -120,7 +105,7 @@ class LoginHistory(Base):
 class AcademicYear(Base):
     __tablename__ = "academic_years"
     id         = Column(Integer, primary_key=True, index=True)
-    name       = Column(String(20), nullable=False)   # ex: "2024-2025"
+    name       = Column(String(20), nullable=False)
     start_date = Column(DateTime,   nullable=False)
     end_date   = Column(DateTime,   nullable=False)
     is_current = Column(Boolean, default=False)
@@ -412,6 +397,7 @@ class Homework(Base):
     due_date     = Column(DateTime, nullable=False)
     max_score    = Column(Float, default=20.0)
     is_published = Column(Boolean, default=False)
+    file_path    = Column(String(400), nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
 
     course      = relationship("Course",             back_populates="homeworks")
@@ -469,102 +455,102 @@ class VideoSession(Base):
     created_at   = Column(DateTime, default=datetime.utcnow)
     course = relationship("Course", back_populates="sessions")
 
-def _column_type(float_type: str, boolean_type: str) -> dict[str, dict[str, str]]:
-    """Colonnes ajoutées après les premières versions sans Alembic."""
+
+# ══════════════════════════════════════════════════════
+#  MIGRATION À CHAUD (colonnes ajoutées après déploiement initial)
+# ══════════════════════════════════════════════════════
+
+def _extra_columns(float_type: str, boolean_type: str) -> dict:
     return {
         "courses": {
-            "thumbnail": "VARCHAR(300)",
-            "semester_id": "INTEGER",
+            "thumbnail":      "VARCHAR(300)",
+            "semester_id":    "INTEGER",
             "class_group_id": "INTEGER",
-            "updated_at": "TIMESTAMP",
+            "updated_at":     "TIMESTAMP",
         },
         "homeworks": {
-            "max_score": float_type,
+            "max_score":    float_type,
             "is_published": boolean_type,
-            "file_path": "VARCHAR(400)",
-            "created_at": "TIMESTAMP",
+            "file_path":    "VARCHAR(400)",
+            "created_at":   "TIMESTAMP",
         },
         "homework_submissions": {
-            "comment": "TEXT",
-            "score": float_type,
-            "feedback": "TEXT",
-            "graded": boolean_type,
+            "comment":      "TEXT",
+            "score":        float_type,
+            "feedback":     "TEXT",
+            "graded":       boolean_type,
             "submitted_at": "TIMESTAMP",
-            "late": boolean_type,
+            "late":         boolean_type,
         },
         "exams": {
-            "duration_min": "INTEGER",
-            "starts_at": "TIMESTAMP",
-            "ends_at": "TIMESTAMP",
-            "is_published": boolean_type,
+            "duration_min":      "INTEGER",
+            "starts_at":         "TIMESTAMP",
+            "ends_at":           "TIMESTAMP",
+            "is_published":      boolean_type,
             "shuffle_questions": boolean_type,
-            "max_attempts": "INTEGER",
-            "passing_score": float_type,
-            "show_score_after": "VARCHAR(20)",
-            "created_at": "TIMESTAMP",
+            "max_attempts":      "INTEGER",
+            "passing_score":     float_type,
+            "show_score_after":  "VARCHAR(20)",
+            "created_at":        "TIMESTAMP",
         },
         "exam_questions": {
-            "order": "INTEGER",
-            "choices": "TEXT",
-            "answer": "VARCHAR(200)",
-            "points": float_type,
+            "order":       "INTEGER",
+            "choices":     "TEXT",
+            "answer":      "VARCHAR(200)",
+            "points":      float_type,
             "explanation": "TEXT",
         },
         "exam_submissions": {
             "grade_details": "TEXT",
-            "score": float_type,
-            "max_score": float_type,
-            "graded": boolean_type,
-            "submitted_at": "TIMESTAMP",
-            "file_path": "VARCHAR(400)",
-            "violations": "INTEGER",
-            "forced": boolean_type,
+            "score":         float_type,
+            "max_score":     float_type,
+            "graded":        boolean_type,
+            "submitted_at":  "TIMESTAMP",
+            "file_path":     "VARCHAR(400)",
+            "violations":    "INTEGER",
+            "forced":        boolean_type,
         },
         "video_sessions": {
             "scheduled_at": "TIMESTAMP",
-            "is_active": boolean_type,
-            "ended_at": "TIMESTAMP",
-            "created_at": "TIMESTAMP",
+            "is_active":    boolean_type,
+            "ended_at":     "TIMESTAMP",
+            "created_at":   "TIMESTAMP",
         },
         "class_groups": {
-            "code": "VARCHAR(20)",
-            "description": "TEXT",
-            "level": "VARCHAR(50)",
+            "code":             "VARCHAR(20)",
+            "description":      "TEXT",
+            "level":            "VARCHAR(50)",
             "academic_year_id": "INTEGER",
-            "teacher_id": "INTEGER",
-            "max_students": "INTEGER",
-            "is_active": boolean_type,
-            "created_at": "TIMESTAMP",
+            "teacher_id":       "INTEGER",
+            "max_students":     "INTEGER",
+            "is_active":        boolean_type,
+            "created_at":       "TIMESTAMP",
         },
     }
 
 
-def _ensure_runtime_schema():
-    """Ajoute les colonnes manquantes sur les bases déjà déployées.
+def _ensure_runtime_schema() -> None:
+    dialect      = engine.dialect.name
+    float_type   = "DOUBLE PRECISION" if dialect == "postgresql" else "REAL"
+    boolean_type = "BOOLEAN"
+    expected     = _extra_columns(float_type, boolean_type)
 
-    `create_all()` crée les nouvelles tables, mais n'altère pas les tables
-    existantes. Railway/PostgreSQL gardait donc d'anciens schémas sans
-    `courses.class_group_id` ou `homeworks.file_path`, ce qui bloquait les
-    créations de cours/devoirs/examens.
-    """
-    dialect = engine.dialect.name
-    float_type = "DOUBLE PRECISION" if dialect == "postgresql" else "REAL"
-    boolean_type = "BOOLEAN" if dialect == "postgresql" else "BOOLEAN"
-    expected = _column_type(float_type, boolean_type)
-
-    inspector = inspect(engine)
+    inspector       = inspect(engine)
     existing_tables = set(inspector.get_table_names())
-    quote = engine.dialect.identifier_preparer.quote
+    quote           = engine.dialect.identifier_preparer.quote
+
     with engine.begin() as conn:
         for table, columns in expected.items():
             if table not in existing_tables:
                 continue
-            existing_columns = {col["name"] for col in inspector.get_columns(table)}
+            existing_cols = {col["name"] for col in inspector.get_columns(table)}
             for column, ddl_type in columns.items():
-                if column in existing_columns:
-                    continue
-                conn.execute(text(f"ALTER TABLE {quote(table)} ADD COLUMN {quote(column)} {ddl_type}"))
+                if column not in existing_cols:
+                    conn.execute(text(
+                        f"ALTER TABLE {quote(table)} ADD COLUMN {quote(column)} {ddl_type}"
+                    ))
 
-def init_db():
+
+def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_runtime_schema()
