@@ -452,6 +452,12 @@ class VideoSession(Base):
     scheduled_at = Column(DateTime, nullable=True)
     is_active    = Column(Boolean, default=False)
     ended_at     = Column(DateTime, nullable=True)
+    youtube_stream_key   = Column(String(300), nullable=True)
+    youtube_live_url     = Column(String(500), nullable=True)
+    youtube_video_id     = Column(String(100), nullable=True)
+    youtube_broadcast_id = Column(String(100), nullable=True)
+    is_recording         = Column(Boolean, default=False)
+    recording_url        = Column(String(500), nullable=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
     course = relationship("Course", back_populates="sessions")
 
@@ -511,10 +517,16 @@ def _extra_columns(float_type: str, boolean_type: str) -> dict:
             "forced":        boolean_type,
         },
         "video_sessions": {
-            "scheduled_at": "TIMESTAMP",
-            "is_active":    boolean_type,
-            "ended_at":     "TIMESTAMP",
-            "created_at":   "TIMESTAMP",
+            "scheduled_at":          "TIMESTAMP",
+            "is_active":             boolean_type,
+            "ended_at":              "TIMESTAMP",
+            "youtube_stream_key":    "VARCHAR(300)",
+            "youtube_live_url":      "VARCHAR(500)",
+            "youtube_video_id":      "VARCHAR(100)",
+            "youtube_broadcast_id":  "VARCHAR(100)",
+            "is_recording":          boolean_type,
+            "recording_url":         "VARCHAR(500)",
+            "created_at":            "TIMESTAMP",
         },
         "class_groups": {
             "code":             "VARCHAR(20)",
