@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions.jsx'
 
 export default function SessionsPanel({ courseId }) {
   const { user }    = useAuthStore()
@@ -11,7 +12,7 @@ export default function SessionsPanel({ courseId }) {
   const [creating, setCreating] = useState(false)
   const [form, setForm]         = useState({ title: '', scheduled_at: '' })
   const [msg, setMsg]           = useState({ text: '', type: '' })
-
+  const [busyId, setBusyId]     = useState(null)
   const isTeacher = user?.role === 'teacher' || user?.role === 'admin'
 
   const flash = (text, type = 'success') => { setMsg({ text, type }); setTimeout(() => setMsg({ text: '', type: '' }), 3000) }
@@ -23,7 +24,11 @@ export default function SessionsPanel({ courseId }) {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [courseId])
+    useEffect(() => {
+    load()
+    const timer = setInterval(load, 30000)
+    return () => clearInterval(timer)
+    }, [courseId])
 
   const createSession = async (e) => {
     e.preventDefault()
@@ -42,17 +47,31 @@ export default function SessionsPanel({ courseId }) {
 
   const startSession = async (s) => {
     try {
-      await api.post(`/sessions/${s.id}/start`)
+      setBusyId(s.id)
+      const res = await api.post(`/sessions/${s.id}/start`)
+      flash('Live en cours...')
       load()
-      navigate(`/room/${s.room_id}`)
-    } catch (err) { flash('Erreur', 'error') }
+      openLiveRoom(navigate, res.data)
+   } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur lors du démarrage du live', 'error')
+    } finally {
+      setBusyId(null)
+    }
   }
 
-  const joinSession = (s) => navigate(`/room/${s.room_id}`)
+  const joinSession = (s) => openLiveRoom(navigate, s)
 
   const endSession = async (s) => {
-    await api.post(`/sessions/${s.id}/end`)
-    flash('Session terminée'); load()
+    try {
+      setBusyId(s.id)
+      const res = await api.post(`/sessions/${s.id}/end`)
+      flash(res.data?.recording_url ? 'Rediffusion disponible dans quelques minutes' : 'Session terminée')
+      load()
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur lors de la fin du live', 'error')
+    } finally {
+      setBusyId(null)
+    }
   }
 
   const deleteSession = async (s) => {
@@ -94,12 +113,12 @@ export default function SessionsPanel({ courseId }) {
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
               {isTeacher && !s.is_active && !s.ended_at && (
-                <button className="btn btn-primary btn-sm" onClick={() => startSession(s)}>▶ Démarrer</button>
+                <button className="btn btn-primary btn-sm" disabled={busyId === s.id} onClick={() => startSession(s)}>🔴 Démarrer le live</button>
               )}
               {isTeacher && s.is_active && (
                 <>
                   <button className="btn btn-primary btn-sm" onClick={() => joinSession(s)}>Rejoindre</button>
-                  <button className="btn btn-outline btn-sm" onClick={() => endSession(s)}>⬛ Terminer</button>
+                  <button className="btn btn-outline btn-sm" disabled={busyId === s.id} onClick={() => endSession(s)}>⏹ Terminer et sauvegarder</button>
                 </>
               )}
               {!isTeacher && s.is_active && (
@@ -110,6 +129,16 @@ export default function SessionsPanel({ courseId }) {
               )}
             </div>
           </div>
+            {(!isTeacher && (s.is_active || s.recording_url)) && (
+            <div className="card-body" style={{ paddingTop: 0 }}>
+              <LiveReplayPlayer session={s} />
+            </div>
+          )}
+          {isTeacher && s.recording_url && !s.is_active && (
+            <div className="card-body" style={{ paddingTop: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+              Rediffusion : <a href={s.recording_url} target="_blank" rel="noreferrer">ouvrir sur YouTube</a>
+            </div>
+          )}
         </div>
       ))}
 
