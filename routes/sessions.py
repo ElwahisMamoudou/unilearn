@@ -6,10 +6,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from auth import get_current_user
 from models import ClassGroup, Course, Enrollment, User, VideoSession, get_db
-from services.youtube_live import create_live_broadcast, end_live_broadcast
+
+try:
+    from services.youtube_live import create_live_broadcast, end_live_broadcast
+except Exception:
+    # Si le service YouTube n'est pas configuré, on utilise des fonctions neutres
+    def create_live_broadcast(title, description=""):
+        return {}
+    def end_live_broadcast(broadcast_id):
+        return None
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
 
 def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
     if course.teacher_id == teacher_id:
@@ -44,72 +53,74 @@ def _ensure_session_access(session: VideoSession, me: User, db: Session, manage:
     if not course:
         raise HTTPException(404, "Cours introuvable")
     _ensure_course_access(course, me, db, manage=manage)
-def _attach_teacher_name(session: VideoSession, fallback: str = "") -> VideoSession:
-    session.teacher_name = session.course.teacher.name if session.course and session.course.teacher else fallback
-    return session
 
 
 def _prepare_session_out(session: VideoSession, me: User, fallback: str = "") -> VideoSession:
-    _attach_teacher_name(session, fallback)
+    session.teacher_name = (
+        session.course.teacher.name
+        if session.course and session.course.teacher
+        else fallback
+    )
     if me.role == "student":
         session.youtube_stream_key = None
     return session
 
+
 # ── Schémas ───────────────────────────────────────
+
 class SessionIn(BaseModel):
-    course_id: int
-    title: str
+    course_id:    int
+    title:        str
     scheduled_at: Optional[datetime] = None
 
 class SessionOut(BaseModel):
-    id: int
-    course_id: int
-    teacher_id: int
-    title: str
-    room_id: str
-    scheduled_at: Optional[datetime]
-    is_active: bool
-    ended_at: Optional[datetime]
-    youtube_stream_key: Optional[str] = None
-    youtube_live_url: Optional[str] = None
-    youtube_video_id: Optional[str] = None
+    id: int; course_id: int; teacher_id: int
+    title: str; room_id: str
+    scheduled_at:         Optional[datetime]
+    is_active:            bool
+    ended_at:             Optional[datetime]
+    youtube_stream_key:   Optional[str] = None
+    youtube_live_url:     Optional[str] = None
+    youtube_video_id:     Optional[str] = None
     youtube_broadcast_id: Optional[str] = None
-    is_recording: Optional[bool] = False
-    recording_url: Optional[str] = None
-    created_at: datetime
-    teacher_name: str = ""
+    is_recording:         Optional[bool] = False
+    recording_url:        Optional[str] = None
+    created_at:           datetime
+    teacher_name:         str = ""
     class Config:
         from_attributes = True
 
 
 # ── Liste des sessions d'un cours ─────────────────
+
 @router.get("/course/{course_id}", response_model=List[SessionOut])
 def list_sessions(
     course_id: int,
     db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    me: User    = Depends(get_current_user),
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-
     _ensure_course_access(course, me, db)
-
     sessions = (
         db.query(VideoSession)
         .filter(VideoSession.course_id == course_id)
         .order_by(VideoSession.created_at.desc())
         .all()
     )
-    for session in sessions:
-        _prepare_session_out(session, me)
+    for s in sessions:
+        _prepare_session_out(s, me)
+    return sessions  # FIX: return manquant
+
 
 # ── Récupérer une session par salle ────────────────
+
 @router.get("/room/{room_id}", response_model=SessionOut)
 def get_session_by_room(
     room_id: str,
     db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    me: User    = Depends(get_current_user),
 ):
     session = db.query(VideoSession).filter(VideoSession.room_id == room_id).first()
     if not session:
@@ -119,29 +130,28 @@ def get_session_by_room(
 
 
 # ── Créer une session (enseignant/admin) ──────────
+
 @router.post("", response_model=SessionOut, status_code=201)
 def create_session(
     body: SessionIn,
-    db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+    me:   User    = Depends(get_current_user),
 ):
     if me.role not in ("teacher", "admin"):
         raise HTTPException(403, "Accès refusé")
-
     course = db.query(Course).filter(Course.id == body.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
     _ensure_course_access(course, me, db, manage=True)
 
-
     session = VideoSession(
-        course_id=body.course_id,
-        teacher_id=me.id,
-        title=body.title,
-        room_id=uuid.uuid4().hex,
-        scheduled_at=body.scheduled_at,
-        is_active=False,
-        is_recording=False,
+        course_id    = body.course_id,
+        teacher_id   = me.id,
+        title        = body.title,
+        room_id      = uuid.uuid4().hex,
+        scheduled_at = body.scheduled_at,
+        is_active    = False,
+        is_recording = False,
     )
     db.add(session)
     db.commit()
@@ -151,11 +161,12 @@ def create_session(
 
 
 # ── Démarrer une session ───────────────────────────
+
 @router.post("/{session_id}/start", response_model=SessionOut)
 def start_session(
     session_id: int,
     db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    me: User    = Depends(get_current_user),
 ):
     session = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not session:
@@ -163,19 +174,23 @@ def start_session(
     _ensure_session_access(session, me, db, manage=True)
 
     if not session.youtube_broadcast_id or not session.youtube_stream_key:
-        youtube = create_live_broadcast(
-            session.title,
-            f"Cours UniLearn: {session.title}",
-        )
-        session.youtube_broadcast_id = youtube.get("broadcast_id")
-        session.youtube_live_url = youtube.get("live_url")
-        session.youtube_stream_key = youtube.get("stream_key")
-        session.youtube_video_id = youtube.get("video_id")
+        try:
+            youtube = create_live_broadcast(
+                session.title,
+                f"Cours UniLearn: {session.title}",
+            )
+            session.youtube_broadcast_id = youtube.get("broadcast_id")
+            session.youtube_live_url     = youtube.get("live_url")
+            session.youtube_stream_key   = youtube.get("stream_key")
+            session.youtube_video_id     = youtube.get("video_id")
+        except Exception as e:
+            # YouTube non configuré → session Jitsi sans streaming
+            pass
 
-    session.room_id = session.room_id or uuid.uuid4().hex
-    session.is_active = True
+    session.room_id      = session.room_id or uuid.uuid4().hex
+    session.is_active    = True
     session.is_recording = bool(session.youtube_stream_key)
-    session.ended_at = None
+    session.ended_at     = None
     session.recording_url = None
 
     db.commit()
@@ -185,22 +200,32 @@ def start_session(
 
 
 # ── Terminer une session ───────────────────────────
+
 @router.post("/{session_id}/end", response_model=SessionOut)
 def end_session(
     session_id: int,
     db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    me: User    = Depends(get_current_user),
 ):
     session = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not session:
         raise HTTPException(404, "Session introuvable")
     _ensure_session_access(session, me, db, manage=True)
 
-    recording_url = end_live_broadcast(session.youtube_broadcast_id)
-    session.is_active = False
+    recording_url = None
+    try:
+        recording_url = end_live_broadcast(session.youtube_broadcast_id)
+    except Exception:
+        pass
+
+    session.is_active    = False
     session.is_recording = False
-    session.ended_at = datetime.utcnow()
-    session.recording_url = recording_url or session.recording_url or session.youtube_live_url
+    session.ended_at     = datetime.utcnow()
+    session.recording_url = (
+        recording_url
+        or session.recording_url
+        or session.youtube_live_url
+    )
 
     db.commit()
     db.refresh(session)
@@ -209,11 +234,12 @@ def end_session(
 
 
 # ── Supprimer une session ──────────────────────────
+
 @router.delete("/{session_id}", status_code=204)
 def delete_session(
     session_id: int,
     db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
+    me: User    = Depends(get_current_user),
 ):
     session = db.query(VideoSession).filter(VideoSession.id == session_id).first()
     if not session:
