@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
-
+import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions.jsx'
 const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
 const thumbUrl = path => {
   if (!path) return null
@@ -202,6 +202,12 @@ export default function ClassDetail() {
   const switchTab = (t) => { setTab(t); loadTab(t) }
   useEffect(() => { if (courses.length > 0) loadTab(tab) }, [courses])
 
+  useEffect(() => {
+    if (tab !== 'sessions' || courses.length === 0) return undefined
+    const timer = setInterval(() => loadTab('sessions', true), 30000)
+    return () => clearInterval(timer)
+  }, [tab, courses.length])
+  
   // ── Actions leçons ─────────────────────────────────────────────────────
   const openCourse = async (c) => {
     if (selCourse?.id === c.id) { setSelCourse(null); return }
@@ -262,8 +268,8 @@ export default function ClassDetail() {
     }
   }
 
-  const startSession  = async (s) => { await api.post(`/sessions/${s.id}/start`); flash('Session demarree !'); setSessions([]); loadTab('sessions', true); navigate(`/room/${s.room_id}`) }
-  const endSession    = async (s) => { await api.post(`/sessions/${s.id}/end`); flash('Session terminee'); setSessions([]); loadTab('sessions', true) }
+  const startSession  = async (s) => { const r = await api.post(`/sessions/${s.id}/start`); flash('Live en cours...'); setSessions([]); loadTab('sessions', true); openLiveRoom(navigate, r.data) }
+  const endSession    = async (s) => { const r = await api.post(`/sessions/${s.id}/end`); flash(r.data?.recording_url ? 'Rediffusion disponible dans quelques minutes' : 'Session terminee'); setSessions([]); loadTab('sessions', true) }
   const deleteSession = async (s) => { if (!confirm('Supprimer cette session ?')) return; await api.delete(`/sessions/${s.id}`); flash('Session supprimee'); setSessions([]); loadTab('sessions', true) }
 
   // ── Création devoir avec fichier joint optionnel ───────────────────────
@@ -943,16 +949,26 @@ export default function ClassDetail() {
                     {s.is_active ? 'En direct' : s.ended_at ? 'Termine' : 'Planifie'}
                   </span>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    {!s.is_active && !s.ended_at && canManage && <button className="btn btn-primary btn-sm" onClick={() => startSession(s)}>Demarrer</button>}
+                    {!s.is_active && !s.ended_at && canManage && <button className="btn btn-primary btn-sm" onClick={() => startSession(s)}>🔴 Démarrer le live</button>}
                     {s.is_active && (
                       <>
-                        <button className="btn btn-primary btn-sm" onClick={() => navigate(`/room/${s.room_id}`)}>Rejoindre</button>
-                        {canManage && <button className="btn btn-outline btn-sm" onClick={() => endSession(s)}>Terminer</button>}
+                        <button className="btn btn-primary btn-sm" onClick={() => openLiveRoom(navigate, s)}>Rejoindre</button>
+                        {canManage && <button className="btn btn-outline btn-sm" onClick={() => endSession(s)}>⏹ Terminer et sauvegarder</button>}
                       </>
                     )}
                     {canManage && <button className="btn btn-danger btn-sm" onClick={() => deleteSession(s)}>Supprimer</button>}
                   </div>
                 </div>
+                  {(!canManage && (s.is_active || s.recording_url)) && (
+                  <div className="card-body" style={{ paddingTop: 0 }}>
+                    <LiveReplayPlayer session={s} />
+                  </div>
+                )}
+                {canManage && s.recording_url && !s.is_active && (
+                  <div className="card-body" style={{ paddingTop: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Rediffusion : <a href={s.recording_url} target="_blank" rel="noreferrer">ouvrir sur YouTube</a>
+                  </div>
+                )}
               </div>
             ))}
         </div>
