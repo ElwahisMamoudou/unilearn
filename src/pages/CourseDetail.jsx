@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions.jsx'
 
 /* ── URL thumbnail (même logique que CoursesPage) ── */
 const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
@@ -41,7 +42,8 @@ export default function CourseDetail() {
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState(null)
   const [msg,       setMsg]       = useState({ text: '', type: '' })
-
+  const [busySessionId, setBusySessionId] = useState(null)
+  
   /* ── Modal édition cours (admin) ── */
   const [editModal,     setEditModal]     = useState(false)
   const [editForm,      setEditForm]      = useState({ title: '', description: '', teacher_id: '', category_id: '', is_published: true })
@@ -117,7 +119,7 @@ export default function CourseDetail() {
   }, [id])
 
   /* ── Charger devoirs / examens / sessions à la demande ── */
-  const loadTab = async (t) => {
+  const loadTab = async (t, force = false) => {
     if (t === 'students' && students.length === 0) {
       const r = await api.get(`/admin/courses/${id}/students`).catch(() => ({ data: [] }))
       setStudents(r.data)
@@ -130,7 +132,7 @@ export default function CourseDetail() {
       const r = await api.get(`/exams/course/${id}`).catch(() => ({ data: [] }))
       setExams(r.data)
     }
-    if (t === 'sessions' && sessions.length === 0) {
+    if (t === 'sessions' && (sessions.length === 0 || force)) {
       const r = await api.get(`/sessions/course/${id}`).catch(() => ({ data: [] }))
       setSessions(r.data)
     }
@@ -184,6 +186,12 @@ export default function CourseDetail() {
 
   const switchTab = t => { setTab(t); loadTab(t) }
 
+    useEffect(() => {
+    if (tab !== 'sessions') return undefined
+    const timer = setInterval(() => loadTab('sessions', true), 30000)
+    return () => clearInterval(timer)
+  }, [tab, id])
+  
   /* ════════════════════════════════════════
      ACTIONS LEÇONS
   ════════════════════════════════════════ */
@@ -247,11 +255,18 @@ export default function CourseDetail() {
   }
 
   const startSession = async s => {
-    await api.post(`/sessions/${s.id}/start`)
-    flash('Session démarrée !')
-    setSessions([])
-    loadTab('sessions')
-    navigate(`/room/${s.room_id}`)
+    try {
+      setBusySessionId(s.id)
+      const res = await api.post(`/sessions/${s.id}/start`)
+      flash('Live en cours...')
+      setSessions([])
+      loadTab('sessions', true)
+      openLiveRoom(navigate, res.data)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur lors du démarrage du live', 'error')
+    } finally {
+      setBusySessionId(null)
+    }
   }
 
   const endSession = async s => {
@@ -263,10 +278,17 @@ export default function CourseDetail() {
 
   const deleteSession = async s => {
     if (!confirm('Supprimer cette session ?')) return
-    await api.delete(`/sessions/${s.id}`)
-    flash('Session supprimée')
-    setSessions([])
-    loadTab('sessions')
+    try {
+      setBusySessionId(s.id)
+      const res = await api.post(`/sessions/${s.id}/end`)
+      flash(res.data?.recording_url ? 'Rediffusion disponible dans quelques minutes' : 'Session terminée')
+      setSessions([])
+      loadTab('sessions', true)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur lors de la fin du live', 'error')
+    } finally {
+      setBusySessionId(null)
+    }
   }
 
   /* ── S'inscrire au cours ── */
@@ -768,12 +790,12 @@ export default function CourseDetail() {
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {!s.is_active && !s.ended_at && canManage && (
-                    <button className="btn btn-primary btn-sm" onClick={() => startSession(s)}>Démarrer</button>
+                      <button className="btn btn-primary btn-sm" disabled={busySessionId === s.id} onClick={() => startSession(s)}>🔴 Démarrer le live</button>
                   )}
                   {s.is_active && (
                     <>
-                      <button className="btn btn-primary btn-sm" onClick={() => navigate(`/room/${s.room_id}`)}>Rejoindre</button>
-                      {canManage && <button className="btn btn-outline btn-sm" onClick={() => endSession(s)}>Terminer</button>}
+                      <button className="btn btn-primary btn-sm" onClick={() => openLiveRoom(navigate, s)}>Rejoindre</button>
+                      {canManage && <button className="btn btn-outline btn-sm" disabled={busySessionId === s.id} onClick={() => endSession(s)}>⏹ Terminer et sauvegarder</button>}
                     </>
                   )}
                   {canManage && (
@@ -781,6 +803,12 @@ export default function CourseDetail() {
                   )}
                 </div>
               </div>
+              {(!canManage && (s.is_active || s.recording_url)) && <LiveReplayPlayer session={s} />}
+              {canManage && s.recording_url && !s.is_active && (
+                <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-muted)' }}>
+                  Rediffusion : <a href={s.recording_url} target="_blank" rel="noreferrer">ouvrir sur YouTube</a>
+                </div>
+              )}
             </div>
           ))}
         </div>
