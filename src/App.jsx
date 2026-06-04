@@ -20,6 +20,7 @@ import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
 import LandingPage from './pages/LandingPage'
 import CallbackPage from './pages/CallbackPage'
+import YouTubeSetupPage from './pages/YouTubeSetupPage'
 
 function ProtectedRoute({ children }) {
   const { token } = useAuthStore()
@@ -34,9 +35,11 @@ function AppLayout() {
 
   const isViewer = location.pathname.startsWith('/lesson/')
   const isRoom   = location.pathname.startsWith('/room/')
+  const isYouTube = location.pathname.startsWith('/youtube-setup')
 
   if (isViewer) return <Routes><Route path="/lesson/:id" element={<LessonViewer />} /></Routes>
   if (isRoom)   return <Routes><Route path="/room/:roomId" element={<VideoRoom />} /></Routes>
+  if (isYouTube) return <Routes><Route path="/youtube-setup" element={<YouTubeSetupPage />} /></Routes>
 
   const pageTitles = {
     '/home':       'Tableau de bord',
@@ -49,6 +52,7 @@ function AppLayout() {
     '/homeworks':  'Devoirs',
     '/classes':    'Classes & Promotions',
     '/profile':    'Mon profil',
+    '/youtube-setup': '🎬 Configuration YouTube',
   }
   const title = pageTitles[location.pathname] || 'UniLearn'
 
@@ -100,6 +104,7 @@ function AppLayout() {
                 : <Navigate to="/home" replace />
             } />
             <Route path="/profile"         element={<ProfilePage />} />
+            <Route path="/youtube-setup"   element={<YouTubeSetupPage />} />
             <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
         </main>
