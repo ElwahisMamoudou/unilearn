@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import Optional
+from routes.youtube_oauth import router as youtube_oauth_router
+app.include_router(youtube_oauth_router)
 
 from dotenv import load_dotenv
 
