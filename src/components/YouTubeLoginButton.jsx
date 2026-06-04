@@ -1,6 +1,6 @@
 export default function YouTubeLoginButton() {
   const handleConnect = () => {
-    const CLIENT_ID = "VOTRE_CLIENT_ID_ICI";
+    const CLIENT_ID = "137571445759-k338atdfh41f2q9ttc8t9s4qkn6433s7.apps.googleusercontent.com";
     const REDIRECT_URI = window.location.hostname === 'localhost'
       ? 'http://localhost:5173/callback'
       : 'https://unilearn-hrrk-7y08uq5tr-elwahismamoudous-projects.vercel.app/callback';
