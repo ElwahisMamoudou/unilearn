@@ -126,6 +126,7 @@ export default function App() {
       <Route path="/lesson/:id"   element={<ProtectedRoute><LessonViewer /></ProtectedRoute>} />
       <Route path="/room/:roomId" element={<ProtectedRoute><VideoRoom /></ProtectedRoute>} />
       <Route path="/*"            element={<ProtectedRoute><AppLayout /></ProtectedRoute>} />
+      <Route path="/callback" element={<CallbackPage />} />
     </Routes>
   )
 }
