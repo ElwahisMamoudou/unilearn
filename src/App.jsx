@@ -19,6 +19,7 @@ import VideoRoom from './pages/VideoRoom'
 import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
 import LandingPage from './pages/LandingPage'
+import CallbackPage from './pages/CallbackPage'
 
 function ProtectedRoute({ children }) {
   const { token } = useAuthStore()
@@ -122,11 +123,15 @@ export default function App() {
         element={token ? <Navigate to="/home" replace /> : <LoginPage />}
       />
 
+      {/* OAuth callback — DOIT être AVANT /* (wildcard) */}
+      <Route path="/callback" 
+        element={<CallbackPage />} 
+      />
+
       {/* Pages protégées */}
       <Route path="/lesson/:id"   element={<ProtectedRoute><LessonViewer /></ProtectedRoute>} />
       <Route path="/room/:roomId" element={<ProtectedRoute><VideoRoom /></ProtectedRoute>} />
       <Route path="/*"            element={<ProtectedRoute><AppLayout /></ProtectedRoute>} />
-      <Route path="/callback" element={<CallbackPage />} />
     </Routes>
   )
 }
