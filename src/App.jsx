@@ -35,11 +35,9 @@ function AppLayout() {
 
   const isViewer = location.pathname.startsWith('/lesson/')
   const isRoom   = location.pathname.startsWith('/room/')
-  const isYouTube = location.pathname.startsWith('/youtube-setup')
 
   if (isViewer) return <Routes><Route path="/lesson/:id" element={<LessonViewer />} /></Routes>
   if (isRoom)   return <Routes><Route path="/room/:roomId" element={<VideoRoom />} /></Routes>
-  if (isYouTube) return <Routes><Route path="/youtube-setup" element={<YouTubeSetupPage />} /></Routes>
 
   const pageTitles = {
     '/home':       'Tableau de bord',
