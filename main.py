@@ -9,8 +9,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import Optional
-from routes.youtube_oauth import router as youtube_oauth_router
-app.include_router(youtube_oauth_router)
 
 from dotenv import load_dotenv
 
@@ -206,6 +204,11 @@ app.add_middleware(
 # Un mount est un catch-all : si déclaré en premier, il intercepte
 # toutes les URLs qui commencent par son préfixe, y compris les routes API.
 # ─────────────────────────────────────────────
+
+# 🔥 IMPORTER YOUTUBE OAUTH ICI (APRÈS la création de app)
+from routes.youtube_oauth import router as youtube_oauth_router
+
+# Enregistrer tous les routeurs
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
 app.include_router(lesson_routes.router)
@@ -220,6 +223,7 @@ app.include_router(homework_routes.router)
 app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
+app.include_router(youtube_oauth_router)  # ✅ Ajouté ici
 
 # ─────────────────────────────────────────────
 # HEALTHCHECK
