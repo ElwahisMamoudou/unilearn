@@ -4,7 +4,7 @@ import api from '../api/client'
 import useAuthStore from '../store/authStore'
 import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions.jsx'
 
-/* ── URL thumbnail (même logique que CoursesPage) ── */
+/* ── URL thumbnail ── */
 const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
 const thumbUrl = path => {
   if (!path) return null
@@ -43,8 +43,8 @@ export default function CourseDetail() {
   const [error,     setError]     = useState(null)
   const [msg,       setMsg]       = useState({ text: '', type: '' })
   const [busySessionId, setBusySessionId] = useState(null)
-  
-  /* ── Modal édition cours (admin) ── */
+
+  /* ── Modal édition cours ── */
   const [editModal,     setEditModal]     = useState(false)
   const [editForm,      setEditForm]      = useState({ title: '', description: '', teacher_id: '', category_id: '', is_published: true })
   const [editThumb,     setEditThumb]     = useState(null)
@@ -63,7 +63,7 @@ export default function CourseDetail() {
 
   /* ── Upload leçon ── */
   const [uploadModal, setUploadModal] = useState(false)
-  const [lessonForm,  setLessonForm]  = useState({ title: '', duration: '', order: 0 })
+  const [lessonForm,  setLessonForm]  = useState({ title: '', duration: '', order: 0, youtube_url: '' })
   const [lessonFile,  setLessonFile]  = useState(null)
   const [uploading,   setUploading]   = useState(false)
   const [dragOver,    setDragOver]    = useState(false)
@@ -92,11 +92,9 @@ export default function CourseDetail() {
         setCourse(cr.data)
         setLessons(lr.data)
 
-        // Charger étudiants inscrits
         const sr = await api.get(`/admin/courses/${id}/students`).catch(() => ({ data: [] }))
         setStudents(sr.data)
 
-        // Charger enseignants + catégories pour le modal edit (admin)
         if (cr.data && (user?.role === 'admin' || user?.role === 'teacher')) {
           const [ur, cats] = await Promise.all([
             api.get('/admin/users').catch(() => ({ data: [] })),
@@ -141,10 +139,10 @@ export default function CourseDetail() {
   /* ── Ouvrir modal édition ── */
   const openEdit = () => {
     setEditForm({
-      title:       course.title,
-      description: course.description || '',
-      teacher_id:  course.teacher_id ? String(course.teacher_id) : '',
-      category_id: course.category_id ? String(course.category_id) : '',
+      title:        course.title,
+      description:  course.description || '',
+      teacher_id:   course.teacher_id ? String(course.teacher_id) : '',
+      category_id:  course.category_id ? String(course.category_id) : '',
       is_published: course.is_published,
     })
     setEditThumb(null)
@@ -159,13 +157,12 @@ export default function CourseDetail() {
     setSaving(true)
     try {
       await api.put(`/admin/courses/${id}`, {
-        title:       editForm.title,
-        description: editForm.description || null,
-        teacher_id:  editForm.teacher_id ? parseInt(editForm.teacher_id) : course.teacher_id,
-        category_id: editForm.category_id ? parseInt(editForm.category_id) : null,
+        title:        editForm.title,
+        description:  editForm.description || null,
+        teacher_id:   editForm.teacher_id ? parseInt(editForm.teacher_id) : course.teacher_id,
+        category_id:  editForm.category_id ? parseInt(editForm.category_id) : null,
         is_published: editForm.is_published,
       })
-      // Upload thumbnail si nouveau fichier
       if (editThumb instanceof File) {
         try {
           const fd = new FormData()
@@ -186,12 +183,12 @@ export default function CourseDetail() {
 
   const switchTab = t => { setTab(t); loadTab(t) }
 
-    useEffect(() => {
+  useEffect(() => {
     if (tab !== 'sessions') return undefined
     const timer = setInterval(() => loadTab('sessions', true), 30000)
     return () => clearInterval(timer)
   }, [tab, id])
-  
+
   /* ════════════════════════════════════════
      ACTIONS LEÇONS
   ════════════════════════════════════════ */
@@ -202,7 +199,12 @@ export default function CourseDetail() {
 
   const uploadLesson = async e => {
     e.preventDefault()
-    if (!lessonFile) return flash('Sélectionnez un fichier', 'error')
+    const hasFile = !!lessonFile
+    const hasYT   = !!lessonForm.youtube_url.trim()
+
+    if (!hasFile && !hasYT) return flash('Sélectionnez un fichier ou collez une URL YouTube', 'error')
+    if (hasFile && hasYT)   return flash('Choisissez soit un fichier, soit une URL YouTube, pas les deux', 'error')
+
     setUploading(true)
     try {
       const fd = new FormData()
@@ -210,11 +212,13 @@ export default function CourseDetail() {
       fd.append('title',     lessonForm.title)
       fd.append('duration',  lessonForm.duration)
       fd.append('order',     lessonForm.order)
-      fd.append('file',      lessonFile)
+      if (hasFile) fd.append('file',        lessonFile)
+      if (hasYT)   fd.append('youtube_url', lessonForm.youtube_url.trim())
+
       await api.post('/lessons/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       flash('Leçon ajoutée !')
       setUploadModal(false)
-      setLessonForm({ title: '', duration: '', order: 0 })
+      setLessonForm({ title: '', duration: '', order: 0, youtube_url: '' })
       setLessonFile(null)
       reloadLessons()
     } catch (err) {
@@ -371,53 +375,34 @@ export default function CourseDetail() {
           EN-TÊTE COURS
       ════════════════════════════════════════ */}
       <div style={{
-        borderRadius: 18,
-        overflow: 'hidden',
-        marginBottom: 28,
-        position: 'relative',
-        minHeight: 200,
+        borderRadius: 18, overflow: 'hidden', marginBottom: 28,
+        position: 'relative', minHeight: 200,
         background: thumb
           ? `url(${thumb}) center/cover no-repeat`
           : 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 60%, #0f2d4a 100%)',
         boxShadow: '0 12px 32px rgba(15,31,61,.2)',
       }}>
-        {/* Overlay */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'linear-gradient(to top, rgba(0,0,0,.8) 0%, rgba(0,0,0,.3) 60%, rgba(0,0,0,.1) 100%)',
-        }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.8) 0%, rgba(0,0,0,.3) 60%, rgba(0,0,0,.1) 100%)' }} />
 
         <div style={{ position: 'relative', padding: '24px 28px', display: 'flex', flexDirection: 'column', minHeight: 200, justifyContent: 'space-between' }}>
-          {/* Bouton retour + Modifier */}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
-            <button
-              onClick={() => navigate(-1)}
-              style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)' }}
-            >
+            <button onClick={() => navigate(-1)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)' }}>
               ← Retour
             </button>
             {canManage && (
-              <button
-                onClick={openEdit}
-                style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', gap: 6 }}
-              >
+              <button onClick={openEdit} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 ✏️ Modifier
               </button>
             )}
           </div>
 
-          {/* Titre + infos */}
           <div style={{ marginTop: 'auto' }}>
             {course.category?.name && (
               <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.7)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
                 {course.category.name}
               </div>
             )}
-            <h1 style={{
-              fontFamily: 'Playfair Display, serif',
-              fontSize: 26, fontWeight: 800, color: '#fff', margin: '0 0 10px',
-              textShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>
+            <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 26, fontWeight: 800, color: '#fff', margin: '0 0 10px', textShadow: '0 2px 8px rgba(0,0,0,.4)' }}>
               {course.title}
             </h1>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -432,16 +417,11 @@ export default function CourseDetail() {
                   👥 {course.student_count} étudiant{course.student_count > 1 ? 's' : ''}
                 </span>
               )}
-              <span style={{
-                fontSize: 11, fontWeight: 700, padding: '3px 12px', borderRadius: 20,
-                background: course.is_published ? 'rgba(34,197,94,.85)' : 'rgba(245,158,11,.85)',
-                color: '#fff',
-              }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 12px', borderRadius: 20, background: course.is_published ? 'rgba(34,197,94,.85)' : 'rgba(245,158,11,.85)', color: '#fff' }}>
                 {course.is_published ? '✓ Publié' : '✏ Brouillon'}
               </span>
             </div>
 
-            {/* Progression étudiant */}
             {isStudent && course.enrolled && (
               <div style={{ marginTop: 14, maxWidth: 300 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -449,25 +429,13 @@ export default function CourseDetail() {
                   <span style={{ fontSize: 12, fontWeight: 800, color: pct === 100 ? '#22c55e' : '#fff' }}>{pct}%</span>
                 </div>
                 <div style={{ height: 6, background: 'rgba(255,255,255,.2)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', width: `${pct}%`, borderRadius: 4,
-                    background: pct === 100 ? '#22c55e' : 'linear-gradient(90deg, #3b82f6, #6366f1)',
-                    transition: 'width .6s ease',
-                  }} />
+                  <div style={{ height: '100%', width: `${pct}%`, borderRadius: 4, background: pct === 100 ? '#22c55e' : 'linear-gradient(90deg, #3b82f6, #6366f1)', transition: 'width .6s ease' }} />
                 </div>
               </div>
             )}
 
-            {/* Bouton inscription si pas inscrit */}
             {isStudent && !course.enrolled && (
-              <button
-                onClick={enroll}
-                style={{
-                  marginTop: 16, background: '#3b82f6', border: 'none', color: '#fff',
-                  borderRadius: 10, padding: '10px 24px', fontWeight: 700, fontSize: 14,
-                  cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.5)',
-                }}
-              >
+              <button onClick={enroll} style={{ marginTop: 16, background: '#3b82f6', border: 'none', color: '#fff', borderRadius: 10, padding: '10px 24px', fontWeight: 700, fontSize: 14, cursor: 'pointer', boxShadow: '0 4px 14px rgba(59,130,246,.5)' }}>
                 S'inscrire à ce cours →
               </button>
             )}
@@ -475,13 +443,8 @@ export default function CourseDetail() {
         </div>
       </div>
 
-      {/* Description */}
       {course.description && (
-        <div style={{
-          padding: '14px 18px', borderRadius: 12, marginBottom: 20,
-          background: '#f8fafc', border: '1px solid var(--border)',
-          fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7,
-        }}>
+        <div style={{ padding: '14px 18px', borderRadius: 12, marginBottom: 20, background: '#f8fafc', border: '1px solid var(--border)', fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
           {course.description}
         </div>
       )}
@@ -507,14 +470,11 @@ export default function CourseDetail() {
         <div>
           {canManage && (
             <div style={{ marginBottom: 16 }}>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => {
-                  setLessonForm({ title: '', duration: '', order: lessons.length })
-                  setLessonFile(null)
-                  setUploadModal(true)
-                }}
-              >
+              <button className="btn btn-primary btn-sm" onClick={() => {
+                setLessonForm({ title: '', duration: '', order: lessons.length, youtube_url: '' })
+                setLessonFile(null)
+                setUploadModal(true)
+              }}>
                 + Ajouter une leçon
               </button>
             </div>
@@ -527,74 +487,69 @@ export default function CourseDetail() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {lessons.map((l, i) => (
-                <div key={l.id} style={{
-                  background: '#fff', borderRadius: 14,
-                  border: '1px solid var(--border)',
-                  padding: '14px 18px',
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  transition: 'box-shadow .15s',
-                }}
-                  onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(59,130,246,.1)'}
-                  onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-                >
-                  {/* Numéro + type */}
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                    background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7',
-                    color: l.type === 'pdf' ? '#1d4ed8' : '#16a34a',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16, fontWeight: 700,
-                  }}>
-                    {l.type === 'pdf' ? '📄' : '🎬'}
-                  </div>
-
-                  {/* Infos */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, color: 'var(--text-muted)',
-                        background: '#f1f5f9', padding: '1px 7px', borderRadius: 6,
-                        flexShrink: 0,
-                      }}>#{i + 1}</span>
-                      {l.title}
+              {lessons.map((l, i) => {
+                const isYT      = l.type === 'youtube'
+                const hasContent = l.file_path || l.youtube_url
+                return (
+                  <div key={l.id} style={{
+                    background: '#fff', borderRadius: 14,
+                    border: '1px solid var(--border)',
+                    padding: '14px 18px',
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    transition: 'box-shadow .15s',
+                  }}
+                    onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(59,130,246,.1)'}
+                    onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+                  >
+                    {/* Icône type */}
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      background: l.type === 'pdf' ? '#dbeafe' : isYT ? '#fee2e2' : '#dcfce7',
+                      color:      l.type === 'pdf' ? '#1d4ed8' : isYT ? '#dc2626' : '#16a34a',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+                    }}>
+                      {l.type === 'pdf' ? '📄' : isYT ? '▶️' : '🎬'}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
-                      {l.type === 'pdf' ? 'PDF' : 'Vidéo'}
-                      {l.duration ? ` · ${l.duration}` : ''}
+
+                    {/* Infos */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', background: '#f1f5f9', padding: '1px 7px', borderRadius: 6, flexShrink: 0 }}>
+                          #{i + 1}
+                        </span>
+                        {l.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+                        {l.type === 'pdf' ? 'PDF' : isYT ? 'YouTube' : 'Vidéo'}
+                        {l.duration ? ` · ${l.duration}` : ''}
+                      </div>
+                    </div>
+
+                    {/* Badge disponibilité */}
+                    <span style={{
+                      fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 600, flexShrink: 0,
+                      background: hasContent ? '#dcfce7' : '#fee2e2',
+                      color:      hasContent ? '#16a34a' : '#991b1b',
+                    }}>
+                      {hasContent ? '✓ Disponible' : '⚠ Manquant'}
+                    </span>
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {hasContent && (
+                        <button className="btn btn-primary btn-sm" onClick={() => navigate(`/lesson/${l.id}`)}>
+                          {isStudent ? 'Ouvrir' : 'Aperçu'}
+                        </button>
+                      )}
+                      {canManage && (
+                        <button className="btn btn-danger btn-sm" onClick={() => deleteLesson(l.id)}>
+                          Supprimer
+                        </button>
+                      )}
                     </div>
                   </div>
-
-                  {/* Badge fichier */}
-                  <span style={{
-                    fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 600, flexShrink: 0,
-                    background: l.file_path ? '#dcfce7' : '#fee2e2',
-                    color: l.file_path ? '#16a34a' : '#991b1b',
-                  }}>
-                    {l.file_path ? '✓ Disponible' : '⚠ Manquant'}
-                  </span>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    {l.file_path && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={() => navigate(`/lesson/${l.id}`)}
-                      >
-                        {isStudent ? 'Ouvrir' : 'Aperçu'}
-                      </button>
-                    )}
-                    {canManage && (
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => deleteLesson(l.id)}
-                      >
-                        Supprimer
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -620,18 +575,11 @@ export default function CourseDetail() {
               {students.map(s => (
                 <div key={s.id} className="card">
                   <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{
-                      width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-                      background: '#eff6ff', color: 'var(--blue)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, fontSize: 14,
-                    }}>
+                    <div style={{ width: 42, height: 42, borderRadius: '50%', flexShrink: 0, background: '#eff6ff', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
                       {s.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {s.name}
-                      </div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.email}</div>
                       {s.progress_pct !== undefined && (
                         <div style={{ marginTop: 6 }}>
@@ -705,9 +653,7 @@ export default function CourseDetail() {
                       </button>
                     )}
                     {canManage && (
-                      <button className="btn btn-danger btn-sm" onClick={() => deleteHomework(hw.id)}>
-                        Supprimer
-                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteHomework(hw.id)}>Supprimer</button>
                     )}
                   </div>
                 </div>
@@ -781,16 +727,12 @@ export default function CourseDetail() {
                     </div>
                   )}
                 </div>
-                <span style={{
-                  fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600,
-                  background: s.is_active ? '#d1fae5' : '#f1f5f9',
-                  color: s.is_active ? '#065f46' : '#64748b',
-                }}>
+                <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600, background: s.is_active ? '#d1fae5' : '#f1f5f9', color: s.is_active ? '#065f46' : '#64748b' }}>
                   {s.is_active ? '🔴 En direct' : s.ended_at ? 'Terminé' : 'Planifié'}
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {!s.is_active && !s.ended_at && canManage && (
-                      <button className="btn btn-primary btn-sm" disabled={busySessionId === s.id} onClick={() => startSession(s)}>🔴 Démarrer le live</button>
+                    <button className="btn btn-primary btn-sm" disabled={busySessionId === s.id} onClick={() => startSession(s)}>🔴 Démarrer le live</button>
                   )}
                   {s.is_active && (
                     <>
@@ -833,6 +775,7 @@ export default function CourseDetail() {
                     onChange={e => setLessonForm({ ...lessonForm, title: e.target.value })}
                     placeholder="Ex : Introduction à la cinématique" />
                 </div>
+
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Durée estimée</label>
@@ -848,44 +791,76 @@ export default function CourseDetail() {
                       onChange={e => setLessonForm({ ...lessonForm, order: parseInt(e.target.value) })} />
                   </div>
                 </div>
+
+                {/* ── Option A : URL YouTube ── */}
                 <div className="form-group">
-                  <label className="form-label">Fichier (PDF ou Vidéo) *</label>
-                  <div
-                    className={`upload-zone${dragOver ? ' drag-over' : ''}`}
-                    onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setLessonFile(f) }}
-                    onClick={() => fileRef.current.click()}
-                  >
-                    {lessonFile ? (
-                      <>
-                        <div style={{ fontSize: 28, marginBottom: 6 }}>📎</div>
-                        <div style={{ fontWeight: 600 }}>{lessonFile.name}</div>
-                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          {(lessonFile.size / 1024 / 1024).toFixed(1)} MB
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontWeight: 600, marginTop: 8 }}>Glisser-déposer ou cliquer</div>
-                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>PDF, MP4, WebM acceptés</p>
-                      </>
-                    )}
-                    <input
-                      ref={fileRef} type="file" accept=".pdf,video/*"
-                      style={{ display: 'none' }}
-                      onChange={e => setLessonFile(e.target.files[0])}
-                    />
-                  </div>
+                  <label className="form-label">
+                    ▶️ URL YouTube
+                    <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                      — collez le lien de la vidéo
+                    </span>
+                  </label>
+                  <input className="form-input"
+                    value={lessonForm.youtube_url}
+                    onChange={e => setLessonForm({ ...lessonForm, youtube_url: e.target.value })}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                  />
                 </div>
-                {uploading && (
-                  <div className="alert alert-info">Upload en cours...</div>
+
+                {/* Séparateur OU */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 8px' }}>
+                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>OU</span>
+                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                </div>
+
+                {/* ── Option B : Fichier ── */}
+                {!lessonForm.youtube_url.trim() && (
+                  <div className="form-group">
+                    <label className="form-label">
+                      📁 Fichier (PDF ou Vidéo)
+                      <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                        — si pas d'URL YouTube
+                      </span>
+                    </label>
+                    <div
+                      className={`upload-zone${dragOver ? ' drag-over' : ''}`}
+                      onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setLessonFile(f) }}
+                      onClick={() => fileRef.current.click()}
+                    >
+                      {lessonFile ? (
+                        <>
+                          <div style={{ fontSize: 28, marginBottom: 6 }}>📎</div>
+                          <div style={{ fontWeight: 600 }}>{lessonFile.name}</div>
+                          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{(lessonFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontWeight: 600, marginTop: 8 }}>Glisser-déposer ou cliquer</div>
+                          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>PDF, MP4, WebM acceptés</p>
+                        </>
+                      )}
+                      <input ref={fileRef} type="file" accept=".pdf,video/*" style={{ display: 'none' }}
+                        onChange={e => setLessonFile(e.target.files[0])} />
+                    </div>
+                  </div>
                 )}
+
+                {/* Résumé si URL YouTube saisie */}
+                {lessonForm.youtube_url.trim() && (
+                  <div style={{ padding: '10px 14px', borderRadius: 10, background: '#fee2e2', border: '1px solid #fca5a5', fontSize: 13, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    ▶️ Leçon YouTube — aucun upload requis
+                  </div>
+                )}
+
+                {uploading && <div className="alert alert-info">Upload en cours...</div>}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setUploadModal(false)}>Annuler</button>
                 <button type="submit" className="btn btn-primary" disabled={uploading}>
-                  {uploading ? 'Upload...' : 'Uploader'}
+                  {uploading ? 'Upload...' : 'Ajouter la leçon'}
                 </button>
               </div>
             </form>
@@ -927,6 +902,7 @@ export default function CourseDetail() {
           </div>
         </div>
       )}
+
       {/* ════════════════════════════════════════
           MODAL MODIFIER LE COURS
       ════════════════════════════════════════ */}
@@ -939,24 +915,12 @@ export default function CourseDetail() {
             </div>
             <form onSubmit={saveCourse}>
               <div className="modal-body">
-
-                {/* Zone image */}
                 <div className="form-group">
                   <label className="form-label">
                     Image du cours
                     <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>— JPG · PNG · WEBP · max 5 MB</span>
                   </label>
-                  <div
-                    onClick={() => editThumbRef.current.click()}
-                    style={{
-                      height: editThumbPrev ? 180 : 110, borderRadius: 12,
-                      border: `2px dashed ${editThumbPrev ? '#22c55e' : '#e2e8f0'}`,
-                      background: '#f8fafc', cursor: 'pointer',
-                      overflow: 'hidden', position: 'relative',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all .2s',
-                    }}
-                  >
+                  <div onClick={() => editThumbRef.current.click()} style={{ height: editThumbPrev ? 180 : 110, borderRadius: 12, border: `2px dashed ${editThumbPrev ? '#22c55e' : '#e2e8f0'}`, background: '#f8fafc', cursor: 'pointer', overflow: 'hidden', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .2s' }}>
                     {editThumbPrev ? (
                       <>
                         <img src={editThumbPrev} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1004,9 +968,7 @@ export default function CourseDetail() {
                     <select className="form-select" value={editForm.teacher_id}
                       onChange={e => setEditForm(f => ({ ...f, teacher_id: e.target.value }))}>
                       <option value="">-- Choisir --</option>
-                      {allTeachers.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
+                      {allTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
                   <div className="form-group">
@@ -1014,9 +976,7 @@ export default function CourseDetail() {
                     <select className="form-select" value={editForm.category_id}
                       onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}>
                       <option value="">Sans catégorie</option>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -1029,7 +989,6 @@ export default function CourseDetail() {
                     <option value="false">Brouillon</option>
                   </select>
                 </div>
-
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-outline" onClick={() => setEditModal(false)}>Annuler</button>
@@ -1041,6 +1000,7 @@ export default function CourseDetail() {
           </div>
         </div>
       )}
+
       {/* ════════════════════════════════════════
           MODAL CRÉER UN DEVOIR
       ════════════════════════════════════════ */}
