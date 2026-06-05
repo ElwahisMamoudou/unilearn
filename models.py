@@ -13,7 +13,6 @@ import os, json
 
 def _get_database_url() -> str:
     url = os.getenv("DATABASE_URL", "sqlite:///./db/unilearn.db")
-    # Railway fournit postgres:// ou postgresql:// — SQLAlchemy 2 exige psycopg2
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     elif url.startswith("postgresql://") and "+psycopg2" not in url:
@@ -198,6 +197,7 @@ class Lesson(Base):
     description = Column(Text,  nullable=True)
     type        = Column(String(10), nullable=False)
     file_path   = Column(String(400), nullable=True)
+    youtube_url = Column(String(500), nullable=True)   # ← URL YouTube (option B)
     duration    = Column(String(20),  nullable=True)
     order       = Column(Integer, default=0)
     created_at  = Column(DateTime, default=datetime.utcnow)
@@ -468,6 +468,9 @@ class VideoSession(Base):
 
 def _extra_columns(float_type: str, boolean_type: str) -> dict:
     return {
+        "lessons": {
+            "youtube_url": "VARCHAR(500)",   # ← option B : URL YouTube
+        },
         "courses": {
             "thumbnail":      "VARCHAR(300)",
             "semester_id":    "INTEGER",
