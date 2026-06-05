@@ -67,9 +67,11 @@ export default function VideoRoom() {
         configOverwrite: {
           liveStreamingEnabled: true,
           fileRecordingsEnabled: false,
-          prejoinPageEnabled: false,
+          prejoinPageEnabled: false,        // désactive la page "Rejoindre"
+          prejoinConfig: { enabled: false },
           startWithAudioMuted: false,
           startWithVideoMuted: false,
+          disableDeepLinking: true,
           toolbarButtons: [
             'microphone', 'camera', 'desktop', 'chat', 'participants-pane',
             'tileview', 'fullscreen', 'hangup', 'livestreaming', 'settings',
@@ -166,7 +168,7 @@ export default function VideoRoom() {
 
   return (
     // FIX: div fermante manquante dans l'original
-    <div style={{ minHeight: '100vh', background: '#07111f', color: '#e5eefb', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', background: '#07111f', color: '#e5eefb', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '12px 18px', background: '#0f1b2d', borderBottom: '1px solid #24344d' }}>
         <div>
           <div style={{ fontSize: 13, color: '#93a4bc' }}>UniLearn Live · Jitsi Meet + YouTube</div>
@@ -193,7 +195,7 @@ export default function VideoRoom() {
         </div>
       )}
 
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0 }} />
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, height: '100%', width: '100%' }} />
     </div>
   )
 }
