@@ -4,16 +4,12 @@ import api from '../api/client'
 import useAuthStore from '../store/authStore'
 
 /**
- * LessonViewer — Lecteur de leçons PDF et Vidéo
+ * LessonViewer — Lecteur de leçons PDF, Vidéo et YouTube
  *
- * CORRECTIONS :
- * 1. URL du fichier → /api/lessons/:id/file?token=...
- *    Le token en query param permet à <iframe> et <video> de s'authentifier
- *    (ces balises HTML ne supportent pas les headers Authorization)
- * 2. Chargement de la leçon via /api/lessons/:id direct
- *    (l'ancien code itérait sur TOUS les cours → très lent si beaucoup de cours)
- * 3. Promise.allSettled pour ne pas bloquer si progress ou siblings échouent
- * 4. Navigation prev/next robuste avec vérification des bornes
+ * Types de leçon supportés :
+ *   - "pdf"     → iframe avec fichier local servi par le backend
+ *   - "video"   → balise <video> avec streaming Range
+ *   - "youtube" → iframe YouTube embed (option B : URL externe, pas d'upload)
  */
 export default function LessonViewer() {
   const { id }   = useParams()
@@ -36,11 +32,9 @@ export default function LessonViewer() {
 
     const load = async () => {
       try {
-        // Endpoint direct — pas d'itération sur tous les cours
         const lr = await api.get(`/lessons/${id}`)
         const l  = lr.data
 
-        // Charger le cours parent, les leçons sœurs et la progression en parallèle
         const [cr, siblingsR, progressR] = await Promise.allSettled([
           api.get(`/courses/${l.course_id}`),
           api.get(`/courses/${l.course_id}/lessons`),
@@ -89,13 +83,12 @@ export default function LessonViewer() {
     api.post(`/lessons/${id}/progress`, updated).catch(() => {})
   }
 
-  // ── URL authentifiée du fichier ────────────────────────────────────────
+  // ── URL authentifiée du fichier (PDF / vidéo locale uniquement) ────────
   // Le token JWT est passé en query param car <iframe> et <video>
   // ne permettent pas d'ajouter des headers HTTP personnalisés.
-  // Le backend doit accepter ?token= en plus du header Authorization.
-  const token   = localStorage.getItem('token') || ''
+  const token    = localStorage.getItem('token') || ''
   const API_ROOT = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/api\/?$/, '')
-  const fileUrl = `${API_ROOT}/api/lessons/${id}/file?token=${encodeURIComponent(token)}`
+  const fileUrl  = `${API_ROOT}/api/lessons/${id}/file?token=${encodeURIComponent(token)}`
 
   // ── Navigation prev / next ─────────────────────────────────────────────
   const currentIdx = lessons.findIndex(l => l.id === parseInt(id))
@@ -103,6 +96,13 @@ export default function LessonViewer() {
   const nextLesson = currentIdx >= 0 && currentIdx < lessons.length - 1
     ? lessons[currentIdx + 1]
     : null
+
+  // ── Icône selon le type ────────────────────────────────────────────────
+  const typeIcon = (type) => {
+    if (type === 'pdf')     return '📄 PDF'
+    if (type === 'youtube') return '▶️ YouTube'
+    return '🎬 Vidéo'
+  }
 
   // ── États de chargement ────────────────────────────────────────────────
   if (loading) return (
@@ -178,6 +178,7 @@ export default function LessonViewer() {
               page={page}
               onPageChange={p => { setPage(p); saveProgress({ last_page: p }) }}
             />
+
           ) : lesson.type === 'video' && lesson.file_path ? (
             <video
               ref={videoRef}
@@ -187,6 +188,14 @@ export default function LessonViewer() {
               onTimeUpdate={e => saveProgress({ watched_sec: Math.floor(e.target.currentTime) })}
               onEnded={markDone}
             />
+
+          ) : lesson.type === 'youtube' && lesson.youtube_url ? (
+            /* ── Lecteur YouTube ── */
+            <YouTubePlayer
+              url={lesson.youtube_url}
+              onEnded={markDone}
+            />
+
           ) : (
             <div className="empty-state" style={{ paddingTop: 80 }}>
               <div style={{ fontSize: 56, marginBottom: 16 }}>📂</div>
@@ -201,10 +210,9 @@ export default function LessonViewer() {
         {/* ── Sidebar ── */}
         <div className="viewer-sidebar">
           <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{
-              fontFamily: 'Playfair Display, serif',
-              fontSize: 15, color: 'var(--navy)', fontWeight: 600,
-            }}>Plan du cours</div>
+            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 15, color: 'var(--navy)', fontWeight: 600 }}>
+              Plan du cours
+            </div>
             {lesson.course_title && (
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                 {lesson.course_title}
@@ -242,12 +250,13 @@ export default function LessonViewer() {
                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                     }}>{l.title}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                      {l.type === 'pdf' ? '📄 PDF' : '🎬 Vidéo'}
+                      {typeIcon(l.type)}
                       {l.duration ? ` · ${l.duration}` : ''}
                     </div>
                   </div>
 
-                  {!l.file_path && (
+                  {/* Indicateur fichier manquant (non applicable pour YouTube) */}
+                  {l.type !== 'youtube' && !l.file_path && (
                     <span title="Fichier manquant" style={{ fontSize: 10, color: '#ef4444', flexShrink: 0 }}>!</span>
                   )}
                 </div>
@@ -280,8 +289,7 @@ export default function LessonViewer() {
 /* ════════════════════════════════════════════════════════════════
    PDFViewer
    Affiche le PDF dans un <iframe> natif du navigateur.
-   Fallback : bouton "Ouvrir dans un onglet" si l'iframe échoue
-   (Firefox mode privé, certains navigateurs mobiles, CORS strict).
+   Fallback : bouton "Ouvrir dans un onglet" si l'iframe échoue.
 ════════════════════════════════════════════════════════════════ */
 function PDFViewer({ url, page }) {
   const [error, setError] = useState(false)
@@ -308,6 +316,80 @@ function PDFViewer({ url, page }) {
       style={{ flex: 1, border: 'none', width: '100%', height: '100%', display: 'block' }}
       title="Lecteur PDF"
       onError={() => setError(true)}
+    />
+  )
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   YouTubePlayer
+   Affiche une vidéo YouTube via l'API embed officielle.
+
+   Formats d'URL acceptés :
+     - https://www.youtube.com/watch?v=VIDEO_ID
+     - https://youtu.be/VIDEO_ID
+     - https://www.youtube.com/embed/VIDEO_ID
+     - https://www.youtube.com/shorts/VIDEO_ID
+
+   Paramètres embed :
+     rel=0            → pas de suggestions de fin
+     modestbranding=1 → logo YouTube discret
+     enablejsapi=1    → active l'API JS (pour futur usage postMessage)
+
+   Note sur onEnded : l'iframe YouTube ne déclenche pas d'événement
+   DOM natif. L'étudiant peut marquer la leçon terminée manuellement
+   via le bouton "Marquer terminé" dans la topbar.
+════════════════════════════════════════════════════════════════ */
+function YouTubePlayer({ url, onEnded }) {
+
+  const extractVideoId = (rawUrl) => {
+    try {
+      const u = new URL(rawUrl)
+      // youtu.be/VIDEO_ID
+      if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0]
+      // youtube.com/embed/VIDEO_ID
+      if (u.pathname.startsWith('/embed/')) return u.pathname.split('/embed/')[1].split('?')[0]
+      // youtube.com/shorts/VIDEO_ID
+      if (u.pathname.startsWith('/shorts/')) return u.pathname.split('/shorts/')[1].split('?')[0]
+      // youtube.com/watch?v=VIDEO_ID
+      return u.searchParams.get('v') || ''
+    } catch {
+      return ''
+    }
+  }
+
+  const videoId = extractVideoId(url)
+
+  if (!videoId) {
+    return (
+      <div className="empty-state" style={{ paddingTop: 80 }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>⚠️</div>
+        <h3 style={{ color: '#fff' }}>URL YouTube invalide</h3>
+        <p style={{ color: 'rgba(255,255,255,.6)', marginBottom: 20 }}>
+          Le lien fourni ne correspond pas à une vidéo YouTube reconnue.
+        </p>
+        <a href={url} target="_blank" rel="noreferrer" className="btn btn-primary">
+          Ouvrir dans YouTube
+        </a>
+      </div>
+    )
+  }
+
+  const embedUrl = [
+    `https://www.youtube.com/embed/${videoId}`,
+    '?rel=0',
+    '&modestbranding=1',
+    '&enablejsapi=1',
+  ].join('')
+
+  return (
+    <iframe
+      key={videoId}
+      src={embedUrl}
+      style={{ flex: 1, border: 'none', width: '100%', height: '100%', display: 'block' }}
+      title="Lecteur YouTube"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+      allowFullScreen
     />
   )
 }
