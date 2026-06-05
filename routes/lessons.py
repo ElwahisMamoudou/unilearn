@@ -34,6 +34,26 @@ def _file_type(content_type: str | None, filename: str | None = None) -> str | N
     return None
 
 
+def _extract_youtube_id(url: str) -> str | None:
+    """
+    Extrait le video_id depuis les formats d'URL YouTube courants :
+      - https://www.youtube.com/watch?v=VIDEO_ID
+      - https://youtu.be/VIDEO_ID
+      - https://www.youtube.com/embed/VIDEO_ID
+      - https://www.youtube.com/shorts/VIDEO_ID
+    Retourne None si l'URL n'est pas reconnue.
+    """
+    import re
+    patterns = [
+        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+
 def _teacher_can_view_course(course: Course, teacher_id: int, db: Session) -> bool:
     if course.teacher_id == teacher_id:
         return True
@@ -86,50 +106,82 @@ class ProgressOut(BaseModel):
     class Config: from_attributes = True
 
 class LessonOut(BaseModel):
-    id: int; course_id: int; title: str
-    description: str | None; type: str
-    file_path: str | None; duration: str | None; order: int
+    id: int
+    course_id: int
+    title: str
+    description: str | None
+    type: str
+    file_path: str | None
+    youtube_url: str | None   # ← URL YouTube (option B)
+    duration: str | None
+    order: int
     class Config: from_attributes = True
 
 
 # ── Upload — enseignant assigné au cours ──────────
 @router.post("/upload", response_model=LessonOut, status_code=201)
 async def upload_lesson(
-    course_id:   int        = Form(...),
-    title:       str        = Form(...),
-    description: str        = Form(""),
-    duration:    str        = Form(""),
-    order:       int        = Form(0),
-    file:        UploadFile = File(...),
-    db:          Session    = Depends(get_db),
-    me:          User       = Depends(require_teacher),
+    course_id:   int                    = Form(...),
+    title:       str                    = Form(...),
+    description: str                    = Form(""),
+    duration:    str                    = Form(""),
+    order:       int                    = Form(0),
+    youtube_url: Optional[str]          = Form(None),   # ← URL YouTube
+    file:        Optional[UploadFile]   = File(None),   # ← fichier désormais optionnel
+    db:          Session                = Depends(get_db),
+    me:          User                   = Depends(require_teacher),
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    # Autoriser l'enseignant du cours ET le titulaire de la classe liée au cours
     if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné — vous ne pouvez pas y ajouter de leçons")
 
-    file_type = _file_type(file.content_type, file.filename)
-    if not file_type:
-        raise HTTPException(400, f"Type non supporté : {file.content_type}")
+    has_file = file is not None and file.filename
+    has_yt   = bool(youtube_url and youtube_url.strip())
 
-    ext      = os.path.splitext(file.filename or "")[1].lower()
-    filename = f"{uuid.uuid4().hex}{ext}"
-    dest     = os.path.join(UPLOAD_DIR, filename)
+    if not has_file and not has_yt:
+        raise HTTPException(400, "Fournissez un fichier (PDF/vidéo) ou une URL YouTube")
 
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    if has_file and has_yt:
+        raise HTTPException(400, "Fournissez soit un fichier, soit une URL YouTube, pas les deux")
+
+    filename_saved = None
+    file_type      = None
+
+    if has_file:
+        file_type = _file_type(file.content_type, file.filename)
+        if not file_type:
+            raise HTTPException(400, f"Type non supporté : {file.content_type}")
+
+        ext      = os.path.splitext(file.filename or "")[1].lower()
+        fname    = f"{uuid.uuid4().hex}{ext}"
+        dest     = os.path.join(UPLOAD_DIR, fname)
+        with open(dest, "wb") as f_out:
+            shutil.copyfileobj(file.file, f_out)
+        filename_saved = fname
+
+    elif has_yt:
+        yt_clean = youtube_url.strip()
+        if not _extract_youtube_id(yt_clean):
+            raise HTTPException(400, "URL YouTube non reconnue. Formats acceptés : youtube.com/watch?v=..., youtu.be/..., shorts/...")
+        file_type   = "youtube"
+        youtube_url = yt_clean
 
     lesson = Lesson(
-        course_id=course_id, title=title,
-        description=description or None,
-        type=file_type, file_path=filename,
-        duration=duration or None, order=order,
+        course_id   = course_id,
+        title       = title,
+        description = description or None,
+        type        = file_type,
+        file_path   = filename_saved,
+        youtube_url = youtube_url if has_yt else None,
+        duration    = duration or None,
+        order       = order,
     )
-    db.add(lesson); db.commit(); db.refresh(lesson)
+    db.add(lesson)
+    db.commit()
+    db.refresh(lesson)
     return lesson
 
 
@@ -150,13 +202,14 @@ def delete_lesson(
     if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné")
 
-    # Supprimer le fichier physique
+    # Supprimer le fichier physique si présent (pas de fichier pour les leçons YouTube)
     if lesson.file_path:
         path = os.path.join(UPLOAD_DIR, lesson.file_path)
         if os.path.exists(path):
             os.remove(path)
 
-    db.delete(lesson); db.commit()
+    db.delete(lesson)
+    db.commit()
 
 
 # ── Détail d'une leçon ────────────────────────────
@@ -174,8 +227,8 @@ def get_lesson(
     return lesson
 
 
-
 # ── Servir le fichier (PDF ou vidéo) ─────────────
+# Non applicable aux leçons YouTube (type="youtube") qui n'ont pas de fichier local.
 @router.get("/{lesson_id}/file")
 def serve_file(
     lesson_id: int,
@@ -201,7 +254,14 @@ def serve_file(
         raise HTTPException(401, "Utilisateur introuvable ou inactif")
 
     lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
-    if not lesson or not lesson.file_path:
+    if not lesson:
+        raise HTTPException(404, "Leçon introuvable")
+
+    # Les leçons YouTube n'ont pas de fichier local à servir
+    if lesson.type == "youtube":
+        raise HTTPException(400, "Cette leçon est hébergée sur YouTube, pas de fichier local")
+
+    if not lesson.file_path:
         raise HTTPException(404, "Fichier introuvable")
 
     _ensure_can_view_lesson(lesson, me, db)
@@ -292,7 +352,8 @@ def update_progress(
             watched_sec=body.watched_sec,
         )
         db.add(prog)
-    db.commit(); db.refresh(prog)
+    db.commit()
+    db.refresh(prog)
     return prog
 
 
