@@ -1,201 +1,527 @@
-import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+/**
+ * LiveRoom.jsx — Salle de cours en ligne
+ *
+ * Fonctionnalités :
+ *   - Enseignant : enregistrement local via MediaRecorder (écran + micro)
+ *     → upload automatique vers POST /api/sessions/:id/recording à la fin
+ *   - Étudiant : rejoindre la salle Jitsi + voir la rediffusion si disponible
+ *   - Barre de progression pendant l'upload
+ *   - Gestion des erreurs (navigateur non compatible, permission refusée…)
+ */
+
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
 
+/* ── Config Jitsi ── */
 const JITSI_DOMAIN = 'meet.jit.si'
 
-export default function VideoRoom() {
-  const { roomId } = useParams()
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { user } = useAuthStore()
+/* ── Taille max upload : 2 GB ── */
+const MAX_RECORDING_BYTES = 2 * 1024 * 1024 * 1024
 
-  const containerRef = useRef(null)
-  const apiRef = useRef(null)
-  const timerRef = useRef(null)
-  const streamStartedRef = useRef(false)
+export default function LiveRoom() {
+  const { roomId }      = useParams()
+  const [params]        = useSearchParams()
+  const navigate        = useNavigate()
+  const { user }        = useAuthStore()
 
-  const [session, setSession] = useState(location.state?.session || null)
-  const [duration, setDuration] = useState(0)
-  const [status, setStatus] = useState('Préparation de la salle Jitsi...')
-  const [ending, setEnding] = useState(false)
-  const [message, setMessage] = useState('')
+  const sessionId = params.get('session')   // ?session=ID passé en URL
 
   const isTeacher = user?.role === 'teacher' || user?.role === 'admin'
 
-  // FIX: timer unique (était déclaré deux fois)
-  useEffect(() => {
-    timerRef.current = setInterval(() => setDuration(v => v + 1), 1000)
-    return () => clearInterval(timerRef.current)
-  }, [])
+  /* ── État session ── */
+  const [session,  setSession]  = useState(null)
+  const [loading,  setLoading]  = useState(true)
 
-  // FIX: chargement session corrigé (syntaxe cassée dans l'original)
+  /* ── État enregistrement ── */
+  const [recState,    setRecState]    = useState('idle')    // idle | recording | uploading | done | error
+  const [recDuration, setRecDuration] = useState(0)         // secondes
+  const [recSize,     setRecSize]     = useState(0)         // bytes
+  const [uploadPct,   setUploadPct]   = useState(0)         // 0-100
+  const [errMsg,      setErrMsg]      = useState('')
+  const [recUrl,      setRecUrl]      = useState(null)      // URL rediffusion après upload
+
+  /* ── Refs ── */
+  const jitsiRef     = useRef(null)
+  const jitsiApi     = useRef(null)
+  const mediaRec     = useRef(null)
+  const chunks       = useRef([])
+  const durationTick = useRef(null)
+  const streamRef    = useRef(null)
+
+  /* ════════════════════════════════════════
+     CHARGEMENT SESSION
+  ════════════════════════════════════════ */
   useEffect(() => {
-    if (session?.id) return
     const load = async () => {
       try {
-        const res = await api.get(`/sessions/room/${roomId}`)
-        setSession(res.data)
+        if (sessionId) {
+          const r = await api.get(`/sessions/room/${roomId}`)
+          setSession(r.data)
+          if (r.data.recording_url) setRecUrl(r.data.recording_url)
+        }
       } catch {
-        setMessage('Impossible de charger les informations du live.')
+        // Session non trouvée — on affiche quand même Jitsi
+      } finally {
+        setLoading(false)
       }
     }
     load()
-  }, [roomId, session?.id])
+  }, [roomId, sessionId])
 
-  // FIX: init Jitsi corrigé (return et dispose mal formés dans l'original)
+  /* ════════════════════════════════════════
+     JITSI EMBED
+  ════════════════════════════════════════ */
   useEffect(() => {
-    if (!session?.room_id || !containerRef.current) return
+    if (loading || !jitsiRef.current) return
+    if (typeof window.JitsiMeetExternalAPI === 'undefined') return
 
-    const existing = document.querySelector('script[data-jitsi-external-api="true"]')
-    const script = existing || document.createElement('script')
-    script.src = `https://${JITSI_DOMAIN}/external_api.js`
-    script.async = true
-    script.dataset.jitsiExternalApi = 'true'
+    const api = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
+      roomName:       roomId,
+      parentNode:     jitsiRef.current,
+      width:          '100%',
+      height:         '100%',
+      userInfo:       { displayName: user?.name || 'Participant' },
+      configOverwrite: {
+        startWithAudioMuted: false,
+        startWithVideoMuted: false,
+        disableDeepLinking:  true,
+      },
+      interfaceConfigOverwrite: {
+        SHOW_JITSI_WATERMARK: false,
+        SHOW_BRAND_WATERMARK:  false,
+        TOOLBAR_BUTTONS: [
+          'microphone', 'camera', 'closedcaptions', 'desktop',
+          'fullscreen', 'fodeviceselection', 'hangup', 'chat',
+          'raisehand', 'tileview',
+        ],
+      },
+    })
 
-    const initJitsi = () => {
-      if (!window.JitsiMeetExternalAPI || apiRef.current) return
+    jitsiApi.current = api
 
-      apiRef.current = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
-        roomName: `UniLearn-${session.room_id}`,
-        parentNode: containerRef.current,
-        userInfo: {
-          displayName: user?.name || (isTeacher ? 'Enseignant' : 'Étudiant'),
-          email: user?.email || undefined,
-        },
-        configOverwrite: {
-          liveStreamingEnabled: true,
-          fileRecordingsEnabled: false,
-          prejoinPageEnabled: false,        // désactive la page "Rejoindre"
-          prejoinConfig: { enabled: false },
-          startWithAudioMuted: false,
-          startWithVideoMuted: false,
-          disableDeepLinking: true,
-          toolbarButtons: [
-            'microphone', 'camera', 'desktop', 'chat', 'participants-pane',
-            'tileview', 'fullscreen', 'hangup', 'livestreaming', 'settings',
-            'raisehand', 'videoquality',
-          ],
-        },
-        interfaceConfigOverwrite: {  // FIX: était mal indenté
-          SHOW_JITSI_WATERMARK: false,
-          SHOW_WATERMARK_FOR_GUESTS: false,
-        },
-      })
-
-      apiRef.current.addListener('videoConferenceJoined', () => {
-        setStatus(isTeacher ? 'Live en cours...' : 'Connecté au cours en direct')
-        startYouTubeStreaming()
-      })
-
-      apiRef.current.addListener('readyToClose', () => {
-        if (!ending) navigate(-1)
-      })
-    }
-
-    if (existing) {
-      initJitsi()
-    } else {
-      script.onload = initJitsi
-      script.onerror = () => setMessage('Impossible de charger Jitsi Meet.')
-      document.head.appendChild(script)
-    }
-
-    // FIX: cleanup corrigé (était syntaxiquement invalide avec conn.send)
     return () => {
-      try {
-        apiRef.current?.dispose()
-      } catch {}
-      apiRef.current = null
-      streamStartedRef.current = false
+      api.dispose()
+      jitsiApi.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.room_id])
+  }, [loading, roomId, user])
 
-  const startYouTubeStreaming = () => {
-    if (!isTeacher || !session?.youtube_stream_key || streamStartedRef.current) return
-    streamStartedRef.current = true
+  /* ════════════════════════════════════════
+     ENREGISTREMENT — MediaRecorder
+  ════════════════════════════════════════ */
 
-    setTimeout(() => {
+  /**
+   * Choisit le meilleur format supporté par le navigateur.
+   * Priorité : WebM VP9 > WebM VP8 > MP4 > WebM simple
+   */
+  const getBestMimeType = () => {
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/mp4;codecs=h264,aac',
+      'video/webm',
+    ]
+    return candidates.find(t => MediaRecorder.isTypeSupported(t)) || ''
+  }
+
+  const startRecording = useCallback(async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setErrMsg("Votre navigateur ne supporte pas l'enregistrement d'écran.")
+      setRecState('error')
+      return
+    }
+
+    try {
+      // Capture écran + audio système + micro
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true,
+      })
+
+      let micStream = null
       try {
-        apiRef.current?.executeCommand('startRecording', {
-          mode: 'stream',
-          streamId: session.youtube_stream_key,
-          youtubeStreamKey: session.youtube_stream_key,
-        })
-        setStatus('Live YouTube en cours...')
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       } catch {
-        setMessage('La salle est ouverte, mais le lancement automatique du streaming YouTube a échoué.')
+        // Micro optionnel
       }
-    }, 2500)
+
+      // Fusionner les tracks audio si possible
+      const tracks = [...displayStream.getTracks()]
+      if (micStream) {
+        micStream.getAudioTracks().forEach(t => tracks.push(t))
+      }
+
+      const combined = new MediaStream(tracks)
+      streamRef.current = combined
+
+      chunks.current = []
+      setRecSize(0)
+
+      const mimeType = getBestMimeType()
+      const recorder = new MediaRecorder(combined, {
+        mimeType:        mimeType || undefined,
+        videoBitsPerSecond: 2_500_000,   // 2.5 Mbps
+      })
+
+      recorder.ondataavailable = e => {
+        if (e.data?.size > 0) {
+          chunks.current.push(e.data)
+          setRecSize(prev => prev + e.data.size)
+        }
+      }
+
+      recorder.onstop = () => {
+        stopDurationTick()
+        combined.getTracks().forEach(t => t.stop())
+        uploadRecording()
+      }
+
+      // Arrêt si l'utilisateur ferme le partage d'écran
+      displayStream.getVideoTracks()[0].onended = () => {
+        if (recorder.state === 'recording') recorder.stop()
+      }
+
+      recorder.start(2000)   // chunk toutes les 2s
+      mediaRec.current = recorder
+      setRecState('recording')
+      setRecDuration(0)
+      startDurationTick()
+
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        setErrMsg("Permission refusée. Autorisez le partage d'écran dans votre navigateur.")
+      } else {
+        setErrMsg(`Erreur : ${err.message}`)
+      }
+      setRecState('error')
+    }
+  }, [sessionId])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRec.current?.state === 'recording') {
+      mediaRec.current.stop()
+    }
+  }, [])
+
+  const startDurationTick = () => {
+    durationTick.current = setInterval(() => {
+      setRecDuration(d => d + 1)
+    }, 1000)
   }
 
-  const fmtTime = seconds => {
-    const value = Math.max(0, Number(seconds) || 0)
-    const h = Math.floor(value / 3600)
-    const m = Math.floor((value % 3600) / 60)
-    const s = value % 60
-    return h > 0
-      ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  const stopDurationTick = () => {
+    clearInterval(durationTick.current)
   }
 
-  const endLive = async () => {
-    if (!session?.id) return navigate(-1)
+  /* ── Upload vers le backend ── */
+  const uploadRecording = async () => {
+    if (chunks.current.length === 0) {
+      setErrMsg("Aucune donnée enregistrée.")
+      setRecState('error')
+      return
+    }
+
+    setRecState('uploading')
+    setUploadPct(0)
+
+    const mimeType = mediaRec.current?.mimeType || 'video/webm'
+    const ext      = mimeType.includes('mp4') ? '.mp4' : '.webm'
+    const blob     = new Blob(chunks.current, { type: mimeType })
+
+    if (blob.size > MAX_RECORDING_BYTES) {
+      setErrMsg("L'enregistrement dépasse 2 GB. Veuillez réduire la durée.")
+      setRecState('error')
+      return
+    }
+
+    const fd = new FormData()
+    fd.append('file', blob, `recording${ext}`)
+
     try {
-      setEnding(true)
-      setStatus('Arrêt du streaming et sauvegarde...')
-      try {
-        apiRef.current?.executeCommand('stopRecording', 'stream')
-      } catch {}
-      const res = await api.post(`/sessions/${session.id}/end`)
-      setSession(res.data)
-      setMessage('Rediffusion disponible dans quelques minutes.')
-      setTimeout(() => navigate(-1), 1800)
-    } catch {
-      setMessage('Impossible de terminer la session automatiquement.')
-      setEnding(false)
+      // XMLHttpRequest pour avoir la progression
+      const xhr = new XMLHttpRequest()
+      const token = localStorage.getItem('token') || ''
+
+      const API_ROOT = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
+
+      await new Promise((resolve, reject) => {
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) {
+            setUploadPct(Math.round((e.loaded / e.total) * 100))
+          }
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText))
+          } else {
+            reject(new Error(`Erreur ${xhr.status}`))
+          }
+        }
+        xhr.onerror = () => reject(new Error('Erreur réseau'))
+        xhr.open('POST', `${API_ROOT}/sessions/${sessionId}/recording`)
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+        xhr.send(fd)
+      }).then(data => {
+        setRecUrl(data.recording_url)
+        setRecState('done')
+      })
+
+    } catch (err) {
+      setErrMsg(`Échec de l'upload : ${err.message}`)
+      setRecState('error')
     }
   }
 
-  const leave = () => {
-    try {
-      apiRef.current?.executeCommand('hangup')
-    } catch {}
-    navigate(-1)
+  /* ── Cleanup ── */
+  useEffect(() => {
+    return () => {
+      stopDurationTick()
+      streamRef.current?.getTracks().forEach(t => t.stop())
+    }
+  }, [])
+
+  /* ── Formater durée ── */
+  const fmtDuration = s => {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = s % 60
+    return h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+      : `${m}:${String(sec).padStart(2, '0')}`
   }
 
+  const fmtSize = bytes => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
+
+  /* ════════════════════════════════════════
+     RENDU
+  ════════════════════════════════════════ */
   return (
-    // FIX: div fermante manquante dans l'original
-    <div style={{ height: '100vh', background: '#07111f', color: '#e5eefb', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, padding: '12px 18px', background: '#0f1b2d', borderBottom: '1px solid #24344d' }}>
-        <div>
-          <div style={{ fontSize: 13, color: '#93a4bc' }}>UniLearn Live · Jitsi Meet + YouTube</div>
-          <div style={{ fontWeight: 700 }}>{session?.title || 'Cours en ligne'}</div>
-        </div>
+    <div style={{
+      height: '100dvh', display: 'flex', flexDirection: 'column',
+      background: '#0f1f3d', color: '#fff',
+    }}>
+
+      {/* ── Topbar ── */}
+      <div style={{
+        height: 52, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 16px',
+        background: 'rgba(0,0,0,.4)',
+        borderBottom: '1px solid rgba(255,255,255,.08)',
+      }}>
+        {/* Gauche : retour + titre */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 13, color: '#93a4bc' }}>{fmtTime(duration)}</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#fecaca', background: '#7f1d1d', padding: '4px 10px', borderRadius: 999 }}>
-            🔴 {status}
-          </span>
-          {isTeacher ? (
-            <button className="btn btn-danger btn-sm" disabled={ending} onClick={endLive}>
-              ⏹ Terminer et sauvegarder
-            </button>
-          ) : (
-            <button className="btn btn-outline btn-sm" onClick={leave}>Quitter</button>
-          )}
+          <button
+            onClick={() => navigate(-1)}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.6)', fontSize: 20, cursor: 'pointer', padding: '4px 8px' }}
+          >←</button>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {session?.title || 'Cours en ligne'}
+            </div>
+            {recState === 'recording' && (
+              <div style={{ fontSize: 11, color: '#f87171', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse 1.2s infinite' }} />
+                REC {fmtDuration(recDuration)} · {fmtSize(recSize)}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Droite : contrôles enregistrement (enseignant seulement) */}
+        {isTeacher && sessionId && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {recState === 'idle' && (
+              <button
+                onClick={startRecording}
+                style={{
+                  background: '#ef4444', border: 'none', color: '#fff',
+                  borderRadius: 8, padding: '7px 16px', fontWeight: 700,
+                  fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
+                Enregistrer
+              </button>
+            )}
+
+            {recState === 'recording' && (
+              <button
+                onClick={stopRecording}
+                style={{
+                  background: '#1e293b', border: '2px solid #ef4444', color: '#ef4444',
+                  borderRadius: 8, padding: '7px 16px', fontWeight: 700,
+                  fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: '#ef4444', display: 'inline-block' }} />
+                Arrêter et sauvegarder
+              </button>
+            )}
+
+            {recState === 'uploading' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 140, height: 6, background: 'rgba(255,255,255,.15)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${uploadPct}%`, background: '#3b82f6', borderRadius: 4, transition: 'width .3s' }} />
+                </div>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,.7)' }}>Upload {uploadPct}%</span>
+              </div>
+            )}
+
+            {recState === 'done' && (
+              <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                ✓ Rediffusion disponible
+              </span>
+            )}
+
+            {recState === 'error' && (
+              <span style={{ fontSize: 12, color: '#f87171', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={errMsg}>
+                ⚠ {errMsg || 'Erreur enregistrement'}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      {message && (
-        <div style={{ padding: '10px 18px', background: '#1f2937', color: '#fef3c7', fontSize: 13 }}>
-          {message}
+      {/* ── Corps ── */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+
+        {/* Jitsi iframe */}
+        <div ref={jitsiRef} style={{ width: '100%', height: '100%' }} />
+
+        {/* Chargement du script Jitsi si nécessaire */}
+        <JitsiLoader domain={JITSI_DOMAIN} />
+
+        {/* Rediffusion disponible pour les étudiants */}
+        {!isTeacher && recUrl && (
+          <ReplayBanner url={recUrl} />
+        )}
+
+        {/* Message si l'enregistrement vient de terminer (pour le prof) */}
+        {isTeacher && recState === 'done' && recUrl && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,.85)', borderRadius: 12, padding: '14px 24px',
+            display: 'flex', alignItems: 'center', gap: 14, backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(74,222,128,.3)',
+          }}>
+            <span style={{ fontSize: 20 }}>✅</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#4ade80' }}>Enregistrement sauvegardé !</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,.6)', marginTop: 2 }}>
+                La rediffusion est disponible pour les étudiants dans la session.
+              </div>
+            </div>
+            <a href={recUrl} target="_blank" rel="noreferrer"
+              style={{ background: '#3b82f6', color: '#fff', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+              Voir
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* Animation pulse pour le point rouge REC */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.3; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   JitsiLoader
+   Injecte le script Jitsi Meet External API si pas encore chargé.
+════════════════════════════════════════════════════════════════ */
+function JitsiLoader({ domain }) {
+  useEffect(() => {
+    if (window.JitsiMeetExternalAPI) return
+    const script = document.createElement('script')
+    script.src   = `https://${domain}/external_api.js`
+    script.async = true
+    document.head.appendChild(script)
+    return () => {}
+  }, [domain])
+  return null
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   ReplayBanner
+   Bandeau affiché aux étudiants quand la rediffusion est dispo.
+════════════════════════════════════════════════════════════════ */
+function ReplayBanner({ url }) {
+  const [show, setShow] = useState(true)
+  if (!show) return null
+  return (
+    <div style={{
+      position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,.85)', borderRadius: 12, padding: '12px 20px',
+      display: 'flex', alignItems: 'center', gap: 12, backdropFilter: 'blur(8px)',
+      border: '1px solid rgba(59,130,246,.4)', zIndex: 10,
+    }}>
+      <span style={{ fontSize: 18 }}>🎬</span>
+      <div style={{ fontSize: 13, color: 'rgba(255,255,255,.8)' }}>
+        La rediffusion de ce cours est disponible
+      </div>
+      <a href={url} target="_blank" rel="noreferrer"
+        style={{ background: '#3b82f6', color: '#fff', borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        Voir la vidéo
+      </a>
+      <button onClick={() => setShow(false)}
+        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 18, cursor: 'pointer', padding: 0, lineHeight: 1 }}>
+        ×
+      </button>
+    </div>
+  )
+}
+
+
+/* ════════════════════════════════════════════════════════════════
+   LiveReplayPlayer
+   Utilisé dans CourseDetail.jsx pour afficher la rediffusion
+   directement dans la carte de session (étudiants + profs).
+════════════════════════════════════════════════════════════════ */
+export function LiveReplayPlayer({ session }) {
+  const [show, setShow] = useState(false)
+
+  if (!session?.recording_url) return null
+
+  return (
+    <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+      {!show ? (
+        <button
+          onClick={() => setShow(true)}
+          style={{
+            background: '#eff6ff', border: '1px solid #bfdbfe',
+            color: '#1d4ed8', borderRadius: 8, padding: '7px 16px',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 7,
+          }}
+        >
+          🎬 Voir la rediffusion
+        </button>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>🎬 Rediffusion</span>
+            <button onClick={() => setShow(false)}
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 18, cursor: 'pointer' }}>×</button>
+          </div>
+          <video
+            controls
+            style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }}
+            src={session.recording_url}
+          />
         </div>
       )}
-
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, height: '100%', width: '100%' }} />
     </div>
   )
 }
