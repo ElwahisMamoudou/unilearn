@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
-import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions.jsx'
+import { LiveReplayPlayer, openLiveRoom } from './LiveRoom'
 
 /* ── URL thumbnail ── */
 const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
