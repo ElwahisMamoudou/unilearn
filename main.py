@@ -41,6 +41,7 @@ from routes import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def _split_env_list(value: str | None) -> list[str]:
     if not value:
         return []
@@ -48,25 +49,19 @@ def _split_env_list(value: str | None) -> list[str]:
 
 
 def get_cors_origins() -> list[str]:
-    """Return explicit browser origins allowed to call the API.
-
-    Browsers reject credentialed CORS responses when the API replies with
-    Access-Control-Allow-Origin: *. We therefore keep a concrete allow-list,
-    while the Vercel preview domains are handled by allow_origin_regex below.
-    """
     origins = {
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        # URLs Vercel connues — ajoutez la vôtre ici si besoin
         "https://unilearn-hrrk.vercel.app",
         "https://unilearn-hrrk-git-main-elwahismamoudous-projects.vercel.app",
     }
-
     origins.update(_split_env_list(os.getenv("FRONTEND_URL")))
     origins.update(_split_env_list(os.getenv("CORS_ORIGINS")))
-
     return sorted(origins)
+
 
 def _csv_env(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
@@ -80,9 +75,8 @@ def _cors_origins() -> list[str]:
     return origins
 
 
-CORS_ORIGINS = _cors_origins()
+CORS_ORIGINS   = _cors_origins()
 ALLOW_ALL_CORS = CORS_ORIGINS == ["*"]
-CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app").strip() or None
 
 
 def require_role(role: str):
@@ -99,57 +93,40 @@ def require_role(role: str):
 def seed():
     db = SessionLocal()
     try:
-        admin = db.query(User).filter_by(email="admin@unilearn.cm").first()
-        if admin:
+        if db.query(User).filter_by(email="admin@unilearn.cm").first():
             logger.info("✅ Admin déjà présent — seed ignoré")
             return
 
         logger.info("🌱 Création des données initiales...")
 
-        cats = [
-            Category(name="Sciences",      color="#0EA5E9"),
-            Category(name="Maths",         color="#F59E0B"),
-            Category(name="Informatique",  color="#EF4444"),
-            Category(name="Maintenance",   color="#10B981"),
-            Category(name="Electronique",  color="#8B5CF6"),
-        ]
-        for c in cats:
-            if not db.query(Category).filter_by(name=c.name).first():
-                db.add(c)
+        for cat in [
+            Category(name="Sciences",     color="#0EA5E9"),
+            Category(name="Maths",        color="#F59E0B"),
+            Category(name="Informatique", color="#EF4444"),
+            Category(name="Maintenance",  color="#10B981"),
+            Category(name="Electronique", color="#8B5CF6"),
+        ]:
+            if not db.query(Category).filter_by(name=cat.name).first():
+                db.add(cat)
         db.flush()
 
         db.add(User(
-            name="Administrateur",
-            email="admin@unilearn.cm",
-            hashed_pwd=hash_password("admin1234"),
-            role="admin",
-            is_active=True,
+            name="Administrateur", email="admin@unilearn.cm",
+            hashed_pwd=hash_password("admin1234"), role="admin", is_active=True,
         ))
-
         if not db.query(User).filter_by(email="prof@unilearn.cm").first():
             db.add(User(
-                name="Prof. Aminou",
-                email="prof@unilearn.cm",
-                hashed_pwd=hash_password("prof1234"),
-                role="teacher",
-                is_active=True,
+                name="Prof. Aminou", email="prof@unilearn.cm",
+                hashed_pwd=hash_password("prof1234"), role="teacher", is_active=True,
             ))
-
         if not db.query(User).filter_by(email="etudiant@unilearn.cm").first():
             db.add(User(
-                name="Ahmadou Bello",
-                email="etudiant@unilearn.cm",
-                hashed_pwd=hash_password("etudiant1234"),
-                role="student",
-                is_active=True,
+                name="Ahmadou Bello", email="etudiant@unilearn.cm",
+                hashed_pwd=hash_password("etudiant1234"), role="student", is_active=True,
             ))
 
         db.commit()
-        logger.info("✅ Seed terminé avec succès")
-        logger.info("   admin@unilearn.cm    / admin1234")
-        logger.info("   prof@unilearn.cm     / prof1234")
-        logger.info("   etudiant@unilearn.cm / etudiant1234")
-
+        logger.info("✅ Seed terminé")
     except Exception as e:
         db.rollback()
         logger.error(f"❌ Erreur seed: {e}")
@@ -164,14 +141,16 @@ def seed():
 async def lifespan(app: FastAPI):
     init_db()
 
-    # Créer tous les dossiers d'upload AVANT le mount StaticFiles
-    # StaticFiles lève une erreur si le dossier n'existe pas au démarrage
+    # ── Créer TOUS les dossiers d'upload au démarrage ──────────────
+    # StaticFiles lève une erreur si le dossier n'existe pas.
+    # uploads/recordings : enregistrements MediaRecorder (option 1)
     for folder in [
         "uploads",
         "uploads/thumbnails",
         "uploads/lessons",
         "uploads/homeworks",
         "uploads/submissions",
+        "uploads/recordings",      # ← enregistrements sessions live
     ]:
         os.makedirs(folder, exist_ok=True)
 
@@ -191,7 +170,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",   # couvre toutes les previews Vercel
     allow_credentials=not ALLOW_ALL_CORS,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -200,15 +179,8 @@ app.add_middleware(
 # ─────────────────────────────────────────────
 # ROUTES API  ← TOUJOURS AVANT app.mount()
 # ─────────────────────────────────────────────
-# RÈGLE FASTAPI : les include_router() doivent précéder app.mount().
-# Un mount est un catch-all : si déclaré en premier, il intercepte
-# toutes les URLs qui commencent par son préfixe, y compris les routes API.
-# ─────────────────────────────────────────────
-
-# 🔥 IMPORTER YOUTUBE OAUTH ICI (APRÈS la création de app)
 from routes.youtube_oauth import router as youtube_oauth_router
 
-# Enregistrer tous les routeurs
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
 app.include_router(lesson_routes.router)
@@ -223,7 +195,8 @@ app.include_router(homework_routes.router)
 app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
-app.include_router(youtube_oauth_router)  # ✅ Ajouté ici
+app.include_router(youtube_oauth_router)
+
 
 # ─────────────────────────────────────────────
 # HEALTHCHECK
@@ -232,19 +205,16 @@ app.include_router(youtube_oauth_router)  # ✅ Ajouté ici
 def api_health():
     return {"ok": True, "service": "unilearn-api"}
 
-
 @app.get("/health")
 def health():
     return {"ok": True, "service": "unilearn-api"}
-    
+
+
 # ─────────────────────────────────────────────
 # DASHBOARD
 # ─────────────────────────────────────────────
 @app.get("/api/dashboard")
-def dashboard(
-    db:   Session = Depends(get_db),
-    user: User    = Depends(get_current_user),
-):
+def dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return {
         "users":       db.query(User).count(),
         "courses":     db.query(Course).count(),
@@ -265,11 +235,7 @@ class ChangePasswordIn(BaseModel):
     new_password:     str
 
 @app.patch("/api/users/me")
-def update_profile(
-    body: UserUpdateIn,
-    db:   Session = Depends(get_db),
-    me:   User    = Depends(get_current_user),
-):
+def update_profile(body: UserUpdateIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
     if body.name:
         me.name = body.name
     if body.email:
@@ -280,13 +246,8 @@ def update_profile(
     db.commit()
     return me
 
-
 @app.post("/api/users/change-password")
-def change_password(
-    body: ChangePasswordIn,
-    db:   Session = Depends(get_db),
-    me:   User    = Depends(get_current_user),
-):
+def change_password(body: ChangePasswordIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
     if not verify_password(body.current_password, me.hashed_pwd):
         raise HTTPException(400, "Mot de passe incorrect")
     if len(body.new_password) < 6:
@@ -299,49 +260,31 @@ def change_password(
 # ─────────────────────────────────────────────
 # UPLOAD GÉNÉRIQUE
 # ─────────────────────────────────────────────
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
-ALLOWED_UPLOAD_EXTENSIONS = {
+UPLOAD_DIR         = os.getenv("UPLOAD_DIR", "uploads")
+MAX_UPLOAD_BYTES   = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXT = {
     ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif",
     ".mp4", ".webm", ".zip", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
 }
 
 @app.post("/api/upload")
-async def upload(
-    file: UploadFile = File(...),
-    me: User = Depends(get_current_user),
-):
-    original_name = os.path.basename(file.filename or "file")
-    _, ext = os.path.splitext(original_name)
+async def upload(file: UploadFile = File(...), me: User = Depends(get_current_user)):
+    _, ext = os.path.splitext(os.path.basename(file.filename or "file"))
     ext = ext.lower()
-    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Type de fichier non autorisé")
-
+    if ext not in ALLOWED_UPLOAD_EXT:
+        raise HTTPException(400, "Type de fichier non autorisé")
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Fichier trop volumineux")
-
+        raise HTTPException(413, "Fichier trop volumineux")
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     safe_name = f"{uuid4().hex}{ext}"
-    path = os.path.join(UPLOAD_DIR, safe_name)
-    with open(path, "wb") as f:
+    with open(os.path.join(UPLOAD_DIR, safe_name), "wb") as f:
         f.write(content)
     return {"url": f"/uploads/{safe_name}"}
 
 
 # ─────────────────────────────────────────────
 # FICHIERS STATIQUES  ← TOUJOURS APRÈS les routes API
-# ─────────────────────────────────────────────
-#
-# UN SEUL mount "/uploads" sert tout le dossier et ses sous-dossiers :
-#   /uploads/lessons/cours.pdf       ✅  (était 404 avant)
-#   /uploads/thumbnails/cover.jpg    ✅
-#   /uploads/homeworks/sujet.pdf     ✅  (nouveau)
-#   /uploads/submissions/rendu.zip   ✅  (nouveau)
-#
-# Remplace l'ancien mount partiel :
-#   app.mount("/uploads/thumbnails", StaticFiles(...), name="thumbnails")
-# qui laissait tout le reste en 404.
 # ─────────────────────────────────────────────
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -352,10 +295,7 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.exception_handler(Exception)
 def global_exception(request, exc):
     logger.error(f"Erreur non gérée: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"message": "Erreur interne du serveur"},
-    )
+    return JSONResponse(status_code=500, content={"message": "Erreur interne du serveur"})
 
 
 # ─────────────────────────────────────────────
@@ -363,8 +303,4 @@ def global_exception(request, exc):
 # ─────────────────────────────────────────────
 @app.get("/")
 def root():
-    return {
-        "message": "UniLearn API v5",
-        "status":  "running",
-        "docs":    "/docs",
-    }
+    return {"message": "UniLearn API v5", "status": "running", "docs": "/docs"}
