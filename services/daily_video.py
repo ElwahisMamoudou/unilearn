@@ -1,13 +1,13 @@
 """
 services/daily_video.py
 Gestion des salles Daily.co pour UniLearn.
-
 API Daily utilisée :
   POST /v1/rooms  → créer une salle
   DELETE /v1/rooms/{name} → supprimer une salle
   POST /v1/meeting-tokens → générer un token (owner = modérateur)
 """
 import os
+import time
 import requests
 
 DAILY_API_KEY = os.getenv("DAILY_API_KEY", "")
@@ -27,24 +27,31 @@ def create_daily_room(room_name: str) -> dict:
     Retourne {"url": "...", "name": "..."}
     """
     payload = {
-        "name":       room_name,
-        "privacy":    "public",          # pas de token requis pour rejoindre
+        "name":    room_name,
+        "privacy": "public",
         "properties": {
-            "enable_chat":           True,
-            "enable_screenshare":    True,
-            "enable_recording":      "cloud",   # enregistrement cloud Daily
-            "start_video_off":       False,
-            "start_audio_off":       False,
-            "max_participants":      200,
-            "exp":                   None,      # pas d'expiration
+            "enable_chat":        True,
+            "enable_screenshare": True,
+            "enable_recording":   "cloud",
+            "start_video_off":    False,
+            "start_audio_off":    False,
+            "max_participants":   200,
+            # "exp": None  ← SUPPRIMÉ : Daily rejette null, omis = pas d'expiration
         },
     }
-    r = requests.post(f"{DAILY_BASE}/rooms", json=payload, headers=_headers(), timeout=10)
-
+    r = requests.post(
+        f"{DAILY_BASE}/rooms",
+        json=payload,
+        headers=_headers(),
+        timeout=10,
+    )
     # Si la salle existe déjà → Daily renvoie 409, on la récupère
     if r.status_code == 409:
-        r = requests.get(f"{DAILY_BASE}/rooms/{room_name}", headers=_headers(), timeout=10)
-
+        r = requests.get(
+            f"{DAILY_BASE}/rooms/{room_name}",
+            headers=_headers(),
+            timeout=10,
+        )
     r.raise_for_status()
     data = r.json()
     return {"url": data["url"], "name": data["name"]}
@@ -57,13 +64,19 @@ def create_owner_token(room_name: str, user_name: str = "") -> str:
     """
     payload = {
         "properties": {
-            "room_name":  room_name,
-            "is_owner":   True,
-            "user_name":  user_name,
+            "room_name":        room_name,
+            "is_owner":         True,
+            "user_name":        user_name,
             "enable_recording": "cloud",
+            "exp":              int(time.time()) + 7200,  # valide 2h
         }
     }
-    r = requests.post(f"{DAILY_BASE}/meeting-tokens", json=payload, headers=_headers(), timeout=10)
+    r = requests.post(
+        f"{DAILY_BASE}/meeting-tokens",
+        json=payload,
+        headers=_headers(),
+        timeout=10,
+    )
     r.raise_for_status()
     return r.json().get("token", "")
 
@@ -77,9 +90,15 @@ def create_participant_token(room_name: str, user_name: str = "") -> str:
             "room_name": room_name,
             "is_owner":  False,
             "user_name": user_name,
+            "exp":       int(time.time()) + 7200,  # valide 2h
         }
     }
-    r = requests.post(f"{DAILY_BASE}/meeting-tokens", json=payload, headers=_headers(), timeout=10)
+    r = requests.post(
+        f"{DAILY_BASE}/meeting-tokens",
+        json=payload,
+        headers=_headers(),
+        timeout=10,
+    )
     r.raise_for_status()
     return r.json().get("token", "")
 
@@ -87,6 +106,10 @@ def create_participant_token(room_name: str, user_name: str = "") -> str:
 def delete_daily_room(room_name: str) -> None:
     """Supprime une salle Daily (optionnel, appelé à la fin d'une session)."""
     try:
-        requests.delete(f"{DAILY_BASE}/rooms/{room_name}", headers=_headers(), timeout=10)
+        requests.delete(
+            f"{DAILY_BASE}/rooms/{room_name}",
+            headers=_headers(),
+            timeout=10,
+        )
     except Exception:
         pass
