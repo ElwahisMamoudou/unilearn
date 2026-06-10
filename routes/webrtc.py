@@ -117,6 +117,32 @@ async def webrtc_signaling(ws: WebSocket, room_id: str):
                 else:
                     await broadcast_to_room(room_id, payload, exclude=peer_id)
 
+            # ── Chat ──
+            elif mtype == "chat":
+                await broadcast_to_room(room_id, {
+                    "type":      "chat",
+                    "from":      peer_id,
+                    "from_name": peer_name,
+                    "text":      str(msg.get("text", ""))[:2000],
+                    "time":      msg.get("time", ""),
+                }, exclude=peer_id)
+
+            # ── Lever la main ──
+            elif mtype == "hand":
+                await broadcast_to_room(room_id, {
+                    "type":    "hand",
+                    "peer_id": peer_id,
+                    "raised":  bool(msg.get("raised", False)),
+                }, exclude=peer_id)
+
+            # ── Partage d'écran (notification) ──
+            elif mtype == "screen":
+                await broadcast_to_room(room_id, {
+                    "type":    "screen",
+                    "peer_id": peer_id,
+                    "sharing": bool(msg.get("sharing", False)),
+                }, exclude=peer_id)
+
     except WebSocketDisconnect:
         pass
     finally:
