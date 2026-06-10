@@ -8,13 +8,19 @@ from auth import get_current_user
 from models import ClassGroup, Course, Enrollment, User, VideoSession, get_db
 
 try:
-    from services.youtube_live import create_live_broadcast, end_live_broadcast
+    from services.daily_video import (
+        create_daily_room,
+        create_owner_token,
+        create_participant_token,
+        delete_daily_room,
+    )
+    DAILY_ENABLED = True
 except Exception:
-    # Si le service YouTube n'est pas configuré, on utilise des fonctions neutres
-    def create_live_broadcast(title, description=""):
-        return {}
-    def end_live_broadcast(broadcast_id):
-        return None
+    DAILY_ENABLED = False
+    def create_daily_room(name): return {"url": "", "name": name}
+    def create_owner_token(name, user=""): return ""
+    def create_participant_token(name, user=""): return ""
+    def delete_daily_room(name): pass
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -173,24 +179,18 @@ def start_session(
         raise HTTPException(404, "Session introuvable")
     _ensure_session_access(session, me, db, manage=True)
 
-    if not session.youtube_broadcast_id or not session.youtube_stream_key:
-        try:
-            youtube = create_live_broadcast(
-                session.title,
-                f"Cours UniLearn: {session.title}",
-            )
-            session.youtube_broadcast_id = youtube.get("broadcast_id")
-            session.youtube_live_url     = youtube.get("live_url")
-            session.youtube_stream_key   = youtube.get("stream_key")
-            session.youtube_video_id     = youtube.get("video_id")
-        except Exception as e:
-            # YouTube non configuré → session Jitsi sans streaming
-            pass
+    # Créer la salle Daily.co si elle n'existe pas encore
+    room_name = f"unilearn-{session.room_id}"
+    try:
+        daily = create_daily_room(room_name)
+        session.youtube_live_url = daily.get("url")  # on réutilise ce champ pour l'URL Daily
+    except Exception:
+        pass  # si Daily échoue on continue quand même
 
-    session.room_id      = session.room_id or uuid.uuid4().hex
-    session.is_active    = True
-    session.is_recording = bool(session.youtube_stream_key)
-    session.ended_at     = None
+    session.room_id       = session.room_id or uuid.uuid4().hex
+    session.is_active     = True
+    session.is_recording  = False
+    session.ended_at      = None
     session.recording_url = None
 
     db.commit()
@@ -212,20 +212,10 @@ def end_session(
         raise HTTPException(404, "Session introuvable")
     _ensure_session_access(session, me, db, manage=True)
 
-    recording_url = None
-    try:
-        recording_url = end_live_broadcast(session.youtube_broadcast_id)
-    except Exception:
-        pass
-
     session.is_active    = False
     session.is_recording = False
     session.ended_at     = datetime.utcnow()
-    session.recording_url = (
-        recording_url
-        or session.recording_url
-        or session.youtube_live_url
-    )
+    # recording_url déjà mis à jour par l'endpoint /recording
 
     db.commit()
     db.refresh(session)
@@ -287,3 +277,44 @@ async def upload_recording(
     db.refresh(session)
     session.teacher_name = me.name
     return session
+
+
+# ── Générer un token Daily.co ──────────────────────
+# GET /api/sessions/{session_id}/token
+# Retourne un token Daily owner (prof) ou participant (étudiant)
+
+@router.get("/{session_id}/token")
+def get_daily_token(
+    session_id: int,
+    db: Session = Depends(get_db),
+    me: User    = Depends(get_current_user),
+):
+    session = db.query(VideoSession).filter(VideoSession.id == session_id).first()
+    if not session:
+        raise HTTPException(404, "Session introuvable")
+    _ensure_session_access(session, me, db)
+
+    room_name = f"unilearn-{session.room_id}"
+
+    # S'assurer que la salle existe
+    try:
+        create_daily_room(room_name)
+    except Exception:
+        pass
+
+    is_owner = me.role in ("teacher", "admin")
+    try:
+        if is_owner:
+            token = create_owner_token(room_name, me.name)
+        else:
+            token = create_participant_token(room_name, me.name)
+    except Exception as e:
+        raise HTTPException(500, f"Erreur Daily.co : {str(e)}")
+
+    daily_url = f"https://unilearn.daily.co/{room_name}"
+    return {
+        "token":      token,
+        "room_url":   daily_url,
+        "room_name":  room_name,
+        "is_owner":   is_owner,
+    }
