@@ -227,6 +227,12 @@ export default function LiveRoom() {
         startWithVideoMuted: false,
         disableDeepLinking:  true,
         prejoinPageEnabled:  false,
+        // Désactiver le lobby "attendre le modérateur"
+        enableLobbyChat:     false,
+        membersOnly:         false,
+        // Pas d'authentification requise
+        enableUserRolesBasedOnToken: false,
+        authentication:      { enabled: false },
       },
       interfaceConfigOverwrite: {
         SHOW_JITSI_WATERMARK:  false,
@@ -322,6 +328,13 @@ export default function LiveRoom() {
             <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {session?.title || 'Cours en ligne'}
             </div>
+
+            {/* Message d'aide pour le prof face à l'écran "modérateur" */}
+            {isTeacher && recState === 'idle' && (
+              <div style={{ fontSize: 11, color: '#fbbf24' }}>
+                💡 Si Jitsi demande "Je suis l'hôte" → cliquez dessus pour entrer
+              </div>
+            )}
 
             {recState === 'recording' && (
               <div style={{ fontSize: 11, color: '#f87171', display: 'flex', alignItems: 'center', gap: 5 }}>
