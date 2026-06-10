@@ -1,18 +1,13 @@
 /**
- * LiveRoom.jsx — Salle de cours en ligne (Jitsi + enregistrement automatique)
+ * VideoRoom.jsx — Salle de cours en ligne (Jitsi + enregistrement)
  *
- * Flux complet :
- *   1. Prof arrive sur /live/:roomId?session=:id
- *   2. Jitsi se charge et le cours démarre
- *   3. MediaRecorder démarre AUTOMATIQUEMENT dès que Jitsi est prêt
- *   4. Prof fait son cours normalement
- *   5. Prof clique "⏹ Terminer le cours"
- *   6. Enregistrement uploadé automatiquement → recording_url en base
- *   7. Étudiants voient la rediffusion dans l'onglet Sessions
- *
- * Pour les étudiants :
- *   - Ils rejoignent Jitsi normalement
- *   - Si une rediffusion existe déjà, un bandeau s'affiche
+ * Corrections apportées :
+ *   1. Enregistrement via getUserMedia (webcam/micro) au lieu de getDisplayMedia
+ *      → le prof n'a plus besoin de "partager son écran" manuellement
+ *   2. URL recording_url construite avec le préfixe VITE_API_URL
+ *      → la vidéo se charge correctement depuis Railway
+ *   3. Jitsi via 8x8.vc (pas de limite 5 min) avec token JWT optionnel
+ *   4. Bouton manuel pour démarrer/arrêter l'enregistrement
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
@@ -20,8 +15,17 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
 
-const JITSI_DOMAIN = 'meet.jit.si'
+const JITSI_DOMAIN = '8x8.vc'
 const MAX_RECORDING_BYTES = 2 * 1024 * 1024 * 1024  // 2 GB
+
+// Construit l'URL absolue d'un recording_url relatif (ex: /uploads/recordings/...)
+function buildRecordingUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
+    .replace(/\/api\/?$/, '')
+  return `${base}${url}`
+}
 
 export default function LiveRoom() {
   const { roomId }     = useParams()
@@ -37,7 +41,7 @@ export default function LiveRoom() {
   const [loading,  setLoading]  = useState(true)
 
   /* ── État enregistrement ── */
-  // idle | waiting | recording | stopping | uploading | done | error
+  // idle | recording | stopping | uploading | done | error
   const [recState,    setRecState]    = useState('idle')
   const [recDuration, setRecDuration] = useState(0)
   const [recSize,     setRecSize]     = useState(0)
@@ -52,7 +56,6 @@ export default function LiveRoom() {
   const chunks         = useRef([])
   const durationTick   = useRef(null)
   const streamRef      = useRef(null)
-  const jitsiReady     = useRef(false)
 
   /* ════════════════════════════════════════
      CHARGEMENT SESSION
@@ -63,7 +66,7 @@ export default function LiveRoom() {
         if (sessionId) {
           const r = await api.get(`/sessions/room/${roomId}`)
           setSession(r.data)
-          if (r.data.recording_url) setRecUrl(r.data.recording_url)
+          if (r.data.recording_url) setRecUrl(buildRecordingUrl(r.data.recording_url))
         }
       } catch {
         // Session non trouvée — on affiche quand même Jitsi
@@ -75,53 +78,39 @@ export default function LiveRoom() {
   }, [roomId, sessionId])
 
   /* ════════════════════════════════════════
-     ENREGISTREMENT — MediaRecorder
+     ENREGISTREMENT — MediaRecorder (webcam/micro)
   ════════════════════════════════════════ */
   const getBestMimeType = () => {
     const candidates = [
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
-      'video/mp4;codecs=h264,aac',
       'video/webm',
+      'video/mp4',
     ]
     return candidates.find(t => MediaRecorder.isTypeSupported(t)) || ''
   }
 
   const startRecording = useCallback(async () => {
     if (!isTeacher || !sessionId) return
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setErrMsg("Votre navigateur ne supporte pas l'enregistrement d'écran.")
-      setRecState('error')
-      return
-    }
-
-    setRecState('waiting')  // en attente de la permission écran
+    if (recState === 'recording') return
 
     try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30, width: { ideal: 1280 }, height: { ideal: 720 } },
+      // Capture webcam + micro directement (pas de partage d'écran)
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 25 } },
         audio: true,
       })
 
-      // Micro optionnel
-      let micStream = null
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      } catch { /* micro non obligatoire */ }
-
-      const tracks = [...displayStream.getTracks()]
-      if (micStream) micStream.getAudioTracks().forEach(t => tracks.push(t))
-
-      const combined = new MediaStream(tracks)
-      streamRef.current = combined
+      streamRef.current = stream
       chunks.current    = []
       setRecSize(0)
       setRecDuration(0)
+      setErrMsg('')
 
       const mimeType = getBestMimeType()
-      const recorder = new MediaRecorder(combined, {
+      const recorder = new MediaRecorder(stream, {
         mimeType:           mimeType || undefined,
-        videoBitsPerSecond: 2_500_000,
+        videoBitsPerSecond: 2_000_000,
       })
 
       recorder.ondataavailable = e => {
@@ -133,30 +122,24 @@ export default function LiveRoom() {
 
       recorder.onstop = () => {
         clearInterval(durationTick.current)
-        combined.getTracks().forEach(t => t.stop())
+        stream.getTracks().forEach(t => t.stop())
         uploadRecording(recorder.mimeType)
       }
 
-      // Si le prof ferme le partage d'écran → arrêt automatique
-      displayStream.getVideoTracks()[0].onended = () => {
-        if (recorder.state === 'recording') recorder.stop()
-      }
-
-      recorder.start(2000)  // chunk toutes les 2s
+      recorder.start(2000)
       mediaRec.current = recorder
-
       setRecState('recording')
       durationTick.current = setInterval(() => setRecDuration(d => d + 1), 1000)
 
     } catch (err) {
       if (err.name === 'NotAllowedError') {
-        setErrMsg("Permission refusée. Autorisez le partage d'écran.")
+        setErrMsg('Permission refusée. Autorisez la caméra et le micro.')
       } else {
         setErrMsg(`Erreur : ${err.message}`)
       }
       setRecState('error')
     }
-  }, [isTeacher, sessionId])
+  }, [isTeacher, sessionId, recState])
 
   const stopRecording = useCallback(() => {
     if (mediaRec.current?.state === 'recording') {
@@ -185,14 +168,14 @@ export default function LiveRoom() {
       return
     }
 
-    const fd    = new FormData()
+    const fd = new FormData()
     fd.append('file', blob, `recording${ext}`)
 
     const token    = localStorage.getItem('token') || ''
     const API_ROOT = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
 
     try {
-      await new Promise((resolve, reject) => {
+      const data = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest()
         xhr.upload.onprogress = e => {
           if (e.lengthComputable) setUploadPct(Math.round(e.loaded / e.total * 100))
@@ -208,12 +191,14 @@ export default function LiveRoom() {
         xhr.open('POST', `${API_ROOT}/sessions/${sessionId}/recording`)
         xhr.setRequestHeader('Authorization', `Bearer ${token}`)
         xhr.send(fd)
-      }).then(data => {
-        setRecUrl(data.recording_url)
-        setRecState('done')
-        // Terminer la session côté backend
-        api.post(`/sessions/${sessionId}/end`).catch(() => {})
       })
+
+      // Construire l'URL absolue pour la lecture
+      const absoluteUrl = buildRecordingUrl(data.recording_url)
+      setRecUrl(absoluteUrl)
+      setRecState('done')
+      api.post(`/sessions/${sessionId}/end`).catch(() => {})
+
     } catch (err) {
       setErrMsg(`Échec upload : ${err.message}`)
       setRecState('error')
@@ -227,8 +212,12 @@ export default function LiveRoom() {
     if (!jitsiContainer.current || jitsiApi.current) return
     if (typeof window.JitsiMeetExternalAPI === 'undefined') return
 
-    const api = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
-      roomName:   roomId,
+    // Utiliser 8x8.vc avec le préfixe "vpaas-magic-cookie-free" pour les rooms publiques
+    const appId   = 'vpaas-magic-cookie-free'
+    const fullRoom = `${appId}/${roomId}`
+
+    const jApi = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
+      roomName:   fullRoom,
       parentNode: jitsiContainer.current,
       width:      '100%',
       height:     '100%',
@@ -237,6 +226,7 @@ export default function LiveRoom() {
         startWithAudioMuted: false,
         startWithVideoMuted: false,
         disableDeepLinking:  true,
+        prejoinPageEnabled:  false,
       },
       interfaceConfigOverwrite: {
         SHOW_JITSI_WATERMARK:  false,
@@ -244,26 +234,18 @@ export default function LiveRoom() {
         TOOLBAR_BUTTONS: [
           'microphone', 'camera', 'desktop', 'fullscreen',
           'fodeviceselection', 'hangup', 'chat', 'raisehand', 'tileview',
+          'participants-pane',
         ],
       },
     })
 
-    // Démarrer l'enregistrement automatiquement quand Jitsi est prêt
-    api.addEventListener('videoConferenceJoined', () => {
-      if (isTeacher && !jitsiReady.current) {
-        jitsiReady.current = true
-        // Petit délai pour laisser Jitsi se stabiliser
-        setTimeout(() => startRecording(), 1500)
-      }
-    })
-
     // Quand le prof quitte Jitsi → arrêter l'enregistrement
-    api.addEventListener('videoConferenceLeft', () => {
+    jApi.addEventListener('videoConferenceLeft', () => {
       if (isTeacher) stopRecording()
     })
 
-    jitsiApi.current = api
-  }, [roomId, user, isTeacher, startRecording, stopRecording])
+    jitsiApi.current = jApi
+  }, [roomId, user, isTeacher, stopRecording])
 
   // Injecter le script Jitsi puis initialiser
   useEffect(() => {
@@ -278,7 +260,7 @@ export default function LiveRoom() {
     script.src      = `https://${JITSI_DOMAIN}/external_api.js`
     script.async    = true
     script.onload   = () => initJitsi()
-    script.onerror  = () => setErrMsg('Impossible de charger Jitsi.')
+    script.onerror  = () => setErrMsg('Impossible de charger Jitsi Meet.')
     document.head.appendChild(script)
 
     return () => {
@@ -306,9 +288,9 @@ export default function LiveRoom() {
       : `${m}:${String(sec).padStart(2,'0')}`
   }
 
-  const fmtSize = b => b < 1024*1024
-    ? `${(b/1024).toFixed(0)} KB`
-    : `${(b/1024/1024).toFixed(1)} MB`
+  const fmtSize = b => b < 1024 * 1024
+    ? `${(b / 1024).toFixed(0)} KB`
+    : `${(b / 1024 / 1024).toFixed(1)} MB`
 
   /* ════════════════════════════════════════
      RENDU
@@ -341,12 +323,6 @@ export default function LiveRoom() {
               {session?.title || 'Cours en ligne'}
             </div>
 
-            {/* Indicateur état enregistrement */}
-            {recState === 'waiting' && (
-              <div style={{ fontSize: 11, color: '#fbbf24' }}>
-                ⏳ En attente de la permission d'écran…
-              </div>
-            )}
             {recState === 'recording' && (
               <div style={{ fontSize: 11, color: '#f87171', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'blink 1.2s infinite' }} />
@@ -378,40 +354,40 @@ export default function LiveRoom() {
             </div>
           )}
 
-          {/* Bouton Terminer — visible uniquement pendant l'enregistrement */}
-          {isTeacher && (recState === 'recording' || recState === 'waiting') && (
+          {/* Bouton Démarrer l'enregistrement (idle ou error) */}
+          {isTeacher && (recState === 'idle' || recState === 'error') && (
             <button
-              onClick={stopRecording}
-              disabled={recState === 'waiting'}
+              onClick={startRecording}
               style={{
-                background: recState === 'waiting' ? 'rgba(239,68,68,.3)' : '#ef4444',
+                background: '#ef4444',
                 border: 'none', color: '#fff',
                 borderRadius: 8, padding: '7px 16px',
-                fontWeight: 700, fontSize: 13, cursor: recState === 'waiting' ? 'not-allowed' : 'pointer',
+                fontWeight: 700, fontSize: 13, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6,
-                transition: 'background .2s',
               }}
             >
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#fff', display: 'inline-block' }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
+              {recState === 'error' ? '↺ Relancer' : '⏺ Enregistrer'}
+            </button>
+          )}
+
+          {/* Bouton Terminer le cours (pendant l'enregistrement) */}
+          {isTeacher && recState === 'recording' && (
+            <button
+              onClick={stopRecording}
+              style={{
+                background: '#1e3a5f',
+                border: '1px solid rgba(255,255,255,.2)', color: '#fff',
+                borderRadius: 8, padding: '7px 16px',
+                fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#ef4444', display: 'inline-block' }} />
               Terminer le cours
             </button>
           )}
 
-          {/* Bouton Relancer si erreur */}
-          {isTeacher && recState === 'error' && (
-            <button
-              onClick={startRecording}
-              style={{
-                background: '#f59e0b', border: 'none', color: '#fff',
-                borderRadius: 8, padding: '7px 16px',
-                fontWeight: 700, fontSize: 13, cursor: 'pointer',
-              }}
-            >
-              ↺ Relancer l'enregistrement
-            </button>
-          )}
-
-          {/* Badge rediffusion disponible */}
           {recState === 'done' && (
             <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700 }}>
               ✓ Cours sauvegardé
@@ -432,7 +408,12 @@ export default function LiveRoom() {
             background: '#0f1f3d',
           }}>
             <div style={{ textAlign: 'center' }}>
-              <div className="spinner" style={{ margin: '0 auto 16px' }} />
+              <div style={{
+                width: 40, height: 40, border: '3px solid rgba(255,255,255,.15)',
+                borderTopColor: '#3b82f6', borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+                margin: '0 auto 16px',
+              }} />
               <div style={{ color: 'rgba(255,255,255,.6)', fontSize: 14 }}>Chargement de la salle…</div>
             </div>
           </div>
@@ -457,7 +438,7 @@ export default function LiveRoom() {
                 Cours enregistré et sauvegardé !
               </div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,.6)', marginTop: 3 }}>
-                Les étudiants peuvent maintenant voir la rediffusion dans l'onglet Sessions.
+                Les étudiants peuvent voir la rediffusion dans l'onglet Sessions.
               </div>
             </div>
             <button
@@ -478,6 +459,9 @@ export default function LiveRoom() {
         @keyframes blink {
           0%, 100% { opacity: 1; }
           50%       { opacity: 0.2; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
@@ -508,8 +492,7 @@ function ReplayBanner({ url }) {
           background: '#3b82f6', color: '#fff', borderRadius: 8,
           padding: '5px 14px', fontSize: 12, fontWeight: 700,
           textDecoration: 'none', whiteSpace: 'nowrap',
-        }}
-      >Voir la vidéo</a>
+        }}>Voir la vidéo</a>
       <button onClick={() => setShow(false)}
         style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 18, cursor: 'pointer', padding: 0 }}>
         ×
