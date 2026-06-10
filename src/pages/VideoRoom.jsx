@@ -15,7 +15,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
 
-const JITSI_DOMAIN = '8x8.vc'
+const JITSI_DOMAIN = 'meet.jit.si'
 const MAX_RECORDING_BYTES = 2 * 1024 * 1024 * 1024  // 2 GB
 
 // Construit l'URL absolue d'un recording_url relatif (ex: /uploads/recordings/...)
@@ -212,9 +212,9 @@ export default function LiveRoom() {
     if (!jitsiContainer.current || jitsiApi.current) return
     if (typeof window.JitsiMeetExternalAPI === 'undefined') return
 
-    // Utiliser 8x8.vc avec le préfixe "vpaas-magic-cookie-free" pour les rooms publiques
-    const appId   = 'vpaas-magic-cookie-free'
-    const fullRoom = `${appId}/${roomId}`
+    // meet.jit.si — préfixe "unilearn-" pour avoir des salles uniques
+    // et éviter les collisions avec d'autres utilisateurs publics
+    const fullRoom = `unilearn-${roomId}`
 
     const jApi = new window.JitsiMeetExternalAPI(JITSI_DOMAIN, {
       roomName:   fullRoom,
