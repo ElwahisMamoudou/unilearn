@@ -180,6 +180,7 @@ app.add_middleware(
 # ROUTES API  ← TOUJOURS AVANT app.mount()
 # ─────────────────────────────────────────────
 from routes.youtube_oauth import router as youtube_oauth_router
+from routes.webrtc import router as webrtc_router
 
 app.include_router(auth_routes.router)
 app.include_router(course_routes.router)
@@ -196,6 +197,7 @@ app.include_router(academic_routes.router)
 app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
 app.include_router(youtube_oauth_router)
+app.include_router(webrtc_router)
 
 
 # ─────────────────────────────────────────────
