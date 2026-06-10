@@ -29,15 +29,13 @@ def create_daily_room(room_name: str) -> dict:
     """
     payload = {
         "name":       room_name,
-        "privacy":    "public",          # pas de token requis pour rejoindre
+        "privacy":    "public",
         "properties": {
-            "enable_chat":           True,
-            "enable_screenshare":    True,
-            "enable_recording":      "cloud",   # enregistrement cloud Daily
-            "start_video_off":       False,
-            "start_audio_off":       False,
-            "max_participants":      200,
-            "exp":                   None,      # pas d'expiration
+            "enable_chat":        True,
+            "enable_screenshare": True,
+            "start_video_off":    False,
+            "start_audio_off":    False,
+            "max_participants":   200,
         },
     }
     r = requests.post(f"{DAILY_BASE}/rooms", json=payload, headers=_headers(), timeout=10)
