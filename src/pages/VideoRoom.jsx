@@ -58,62 +58,60 @@ export default function VideoRoom() {
      INIT : charger session + token Daily
   ════════════════════════════════════════ */
   useEffect(() => {
+    let cancelled = false
+
     const init = async () => {
+      // Détruire toute instance Daily existante (protection double-mount StrictMode)
       try {
-        // 1. Charger la session
-        let sess = null
+        const existing = window.DailyIframe?.getCallInstance?.()
+        if (existing) { existing.destroy(); await new Promise(r => setTimeout(r, 100)) }
+      } catch (_) {}
+
+      try {
         if (sessionId) {
           const r = await api.get(`/sessions/room/${roomId}`)
-          sess = r.data
-          setSession(sess)
-          if (sess.recording_url) setRecUrl(buildRecordingUrl(sess.recording_url))
+          if (cancelled) return
+          setSession(r.data)
+          if (r.data.recording_url) setRecUrl(buildRecordingUrl(r.data.recording_url))
         }
 
-        // 2. Obtenir le token Daily
         const tokenRes = await api.get(`/sessions/${sessionId}/token`)
+        if (cancelled) return
         const { token, room_url } = tokenRes.data
 
-        // 3. Charger le SDK Daily dynamiquement
         await loadDailyScript()
+        if (cancelled) return
 
-        // 4. Créer l'appel Daily dans le conteneur
         const call = window.DailyIframe.createFrame(containerRef.current, {
-          iframeStyle: {
-            position:   'absolute',
-            top:        0,
-            left:       0,
-            width:      '100%',
-            height:     '100%',
-            border:     'none',
-            borderRadius: 0,
-          },
+          iframeStyle: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' },
           showLeaveButton:      true,
           showFullscreenButton: true,
         })
 
-        call.on('joined-meeting',  () => setCallReady(true))
-        call.on('left-meeting',    () => {
+        call.on('joined-meeting', () => { if (!cancelled) setCallReady(true) })
+        call.on('left-meeting', () => {
           if (isTeacher && mediaRec.current?.state === 'recording') stopRecording()
-          navigate(-1)
+          if (!cancelled) navigate(-1)
         })
-        call.on('error', e => setErrMsg(`Erreur Daily : ${e.errorMsg || 'inconnue'}`))
+        call.on('error', e => { if (!cancelled) setErrMsg(`Erreur Daily : ${e.errorMsg || 'inconnue'}`) })
 
-        await call.join({ url: room_url, token })
         callRef.current = call
+        await call.join({ url: room_url, token })
 
       } catch (err) {
-        setErrMsg(err?.response?.data?.detail || err.message || 'Erreur de connexion')
+        if (!cancelled) setErrMsg(err?.response?.data?.detail || err.message || 'Erreur de connexion')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     init()
 
     return () => {
+      cancelled = true
       clearInterval(durationTick.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
-      callRef.current?.destroy()
+      if (callRef.current) { callRef.current.destroy(); callRef.current = null }
     }
   }, [])  // eslint-disable-line
 
