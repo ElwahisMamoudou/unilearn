@@ -44,6 +44,8 @@ def create_daily_room(room_name: str) -> dict:
     if r.status_code == 409:
         r = requests.get(f"{DAILY_BASE}/rooms/{room_name}", headers=_headers(), timeout=10)
 
+    if not r.ok:
+        raise Exception(f"Daily {r.status_code}: {r.text}")
     r.raise_for_status()
     data = r.json()
     url = data.get("url") or f"https://{DAILY_DOMAIN}/{room_name}"
