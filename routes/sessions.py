@@ -296,11 +296,16 @@ def get_daily_token(
 
     room_name = f"unilearn-{session.room_id}"
 
-    # S'assurer que la salle existe
+    # Créer la salle et récupérer l'URL RÉELLE retournée par Daily
+    # (le domaine dépend du compte : xxx.daily.co, pas forcément "unilearn")
     try:
-        create_daily_room(room_name)
-    except Exception:
-        pass
+        room_data = create_daily_room(room_name)
+        daily_url = room_data.get("url") or ""
+    except Exception as e:
+        raise HTTPException(500, f"Erreur création salle Daily : {str(e)}")
+
+    if not daily_url:
+        raise HTTPException(500, "Daily.co n'a pas retourné d'URL de salle")
 
     is_owner = me.role in ("teacher", "admin")
     try:
@@ -309,12 +314,11 @@ def get_daily_token(
         else:
             token = create_participant_token(room_name, me.name)
     except Exception as e:
-        raise HTTPException(500, f"Erreur Daily.co : {str(e)}")
+        raise HTTPException(500, f"Erreur token Daily.co : {str(e)}")
 
-    daily_url = f"https://unilearn.daily.co/{room_name}"
     return {
-        "token":      token,
-        "room_url":   daily_url,
-        "room_name":  room_name,
-        "is_owner":   is_owner,
+        "token":     token,
+        "room_url":  daily_url,
+        "room_name": room_name,
+        "is_owner":  is_owner,
     }
