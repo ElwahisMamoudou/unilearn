@@ -1,10 +1,5 @@
 """
 services/daily_video.py
-Gestion des salles Daily.co pour UniLearn.
-API Daily utilisée :
-  POST /v1/rooms  → créer une salle
-  DELETE /v1/rooms/{name} → supprimer une salle
-  POST /v1/meeting-tokens → générer un token (owner = modérateur)
 """
 import os
 import time
@@ -22,21 +17,17 @@ def _headers():
 
 
 def create_daily_room(room_name: str) -> dict:
-    """
-    Crée (ou récupère si elle existe déjà) une salle Daily.
-    Retourne {"url": "...", "name": "..."}
-    """
     payload = {
         "name":    room_name,
         "privacy": "public",
         "properties": {
             "enable_chat":        True,
             "enable_screenshare": True,
-            "enable_recording":   "cloud",
             "start_video_off":    False,
             "start_audio_off":    False,
             "max_participants":   200,
-            # "exp": None  ← SUPPRIMÉ : Daily rejette null, omis = pas d'expiration
+            # enable_recording "cloud" retiré — nécessite un plan payant Daily
+            # exp retiré — null causait le 400
         },
     }
     r = requests.post(
@@ -45,30 +36,31 @@ def create_daily_room(room_name: str) -> dict:
         headers=_headers(),
         timeout=10,
     )
-    # Si la salle existe déjà → Daily renvoie 409, on la récupère
     if r.status_code == 409:
         r = requests.get(
             f"{DAILY_BASE}/rooms/{room_name}",
             headers=_headers(),
             timeout=10,
         )
-    r.raise_for_status()
+        r.raise_for_status()
+        data = r.json()
+        return {"url": data["url"], "name": data["name"]}
+
+    if not r.ok:
+        # Message d'erreur complet pour debug
+        raise Exception(f"{r.status_code} {r.text}")
+
     data = r.json()
     return {"url": data["url"], "name": data["name"]}
 
 
 def create_owner_token(room_name: str, user_name: str = "") -> str:
-    """
-    Génère un token 'owner' (modérateur) pour le prof.
-    Avec ce token → pas d'écran 'attendre le modérateur'.
-    """
     payload = {
         "properties": {
-            "room_name":        room_name,
-            "is_owner":         True,
-            "user_name":        user_name,
-            "enable_recording": "cloud",
-            "exp":              int(time.time()) + 7200,  # valide 2h
+            "room_name": room_name,
+            "is_owner":  True,
+            "user_name": user_name,
+            "exp":       int(time.time()) + 7200,
         }
     }
     r = requests.post(
@@ -77,20 +69,18 @@ def create_owner_token(room_name: str, user_name: str = "") -> str:
         headers=_headers(),
         timeout=10,
     )
-    r.raise_for_status()
+    if not r.ok:
+        raise Exception(f"{r.status_code} {r.text}")
     return r.json().get("token", "")
 
 
 def create_participant_token(room_name: str, user_name: str = "") -> str:
-    """
-    Génère un token participant (étudiant) — peut rejoindre sans attendre.
-    """
     payload = {
         "properties": {
             "room_name": room_name,
             "is_owner":  False,
             "user_name": user_name,
-            "exp":       int(time.time()) + 7200,  # valide 2h
+            "exp":       int(time.time()) + 7200,
         }
     }
     r = requests.post(
@@ -99,12 +89,12 @@ def create_participant_token(room_name: str, user_name: str = "") -> str:
         headers=_headers(),
         timeout=10,
     )
-    r.raise_for_status()
+    if not r.ok:
+        raise Exception(f"{r.status_code} {r.text}")
     return r.json().get("token", "")
 
 
 def delete_daily_room(room_name: str) -> None:
-    """Supprime une salle Daily (optionnel, appelé à la fin d'une session)."""
     try:
         requests.delete(
             f"{DAILY_BASE}/rooms/{room_name}",
