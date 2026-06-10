@@ -12,6 +12,15 @@
 
 import { useState } from 'react'
 
+// Construit l'URL absolue pour un recording_url relatif venant du backend
+function buildRecordingUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
+    .replace(/\/api\/?$/, '')
+  return `${base}${url}`
+}
+
 /* ════════════════════════════════════════════════════════════════
    openLiveRoom
    Navigue vers la page /live/:roomId?session=:id
@@ -19,7 +28,7 @@ import { useState } from 'react'
 ════════════════════════════════════════════════════════════════ */
 export function openLiveRoom(navigate, session) {
   if (!session?.room_id) return
-  navigate(`/live/${session.room_id}?session=${session.id}`)
+  navigate(`/room/${session.room_id}?session=${session.id}`)
 }
 
 
@@ -38,6 +47,7 @@ export function LiveReplayPlayer({ session }) {
 
   if (!session?.recording_url) return null
 
+  const recordingUrl = buildRecordingUrl(session.recording_url)
   const isYouTube = session.recording_url.includes('youtube.com') ||
                     session.recording_url.includes('youtu.be')
 
@@ -97,7 +107,7 @@ export function LiveReplayPlayer({ session }) {
                 background: '#000',
                 display: 'block',
               }}
-              src={session.recording_url}
+              src={recordingUrl}
             >
               Votre navigateur ne supporte pas la lecture vidéo.
             </video>
