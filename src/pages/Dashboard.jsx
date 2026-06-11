@@ -139,43 +139,24 @@ export default function Dashboard() {
     )
   }
 
-  // ── VUE ENSEIGNANT ─────────────────────────────
-  if (isTeacher) {
-    return (
-      <>
-        <div className="section-header" style={{ marginBottom: 20 }}>
-          <span className="section-title">Mes classes</span>
-        </div>
-
-        {classes.length === 0 ? (
-          <div className="empty-state">
-            <div className="icon">🎓</div>
-            <h3>Aucune classe assignée</h3>
-            <p>L'administrateur ne vous a pas encore assigné de classe.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-            {classes.map(c => (
-              <ClassCard key={c.id} cls={c} onClick={() => navigate(`/classes/${c.id}`)} />
-            ))}
-          </div>
-        )}
-      </>
-    )
-  }
-
-  // ── VUE ÉTUDIANT ───────────────────────────────
+  // ── VUE ENSEIGNANT & ÉTUDIANT (identiques structurellement) ──
   return (
     <>
       <div className="section-header" style={{ marginBottom: 20 }}>
-        <span className="section-title">Mes classes</span>
+        <span className="section-title">
+          {isTeacher ? 'Mes classes' : 'Mes classes'}
+        </span>
       </div>
 
       {classes.length === 0 ? (
         <div className="empty-state">
           <div className="icon">🎓</div>
-          <h3>Aucune classe</h3>
-          <p>L'administrateur ne vous a pas encore inscrit dans une classe.</p>
+          <h3>{isTeacher ? 'Aucune classe assignée' : 'Aucune classe'}</h3>
+          <p>
+            {isTeacher
+              ? "L'administrateur ne vous a pas encore assigné de classe."
+              : "L'administrateur ne vous a pas encore inscrit dans une classe."}
+          </p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
