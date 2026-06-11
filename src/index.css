@@ -396,3 +396,5 @@ video.lesson-video { width: 100%; max-height: calc(100dvh - 56px); background: #
   .form-row { grid-template-columns: 1fr; }
   .viewer-sidebar { display: none; }
 }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
