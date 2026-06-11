@@ -4,25 +4,25 @@ import useAuthStore from '../store/authStore'
 import api from '../api/client'
 
 const NAV_STUDENT = [
-  { to: '/home',       label: 'Tableau de bord' },
-  { to: '/my-courses', label: 'Mes cours' },
-  { to: '/exams',      label: 'Examens' },
-  { to: '/homeworks',  label: 'Devoirs' },
-  { to: '/messages',   label: 'Messages', badge: true },
+  { to: '/home',       label: '🏠 Tableau de bord' },
+  { to: '/my-courses', label: '📚 Mes cours' },
+  { to: '/exams',      label: '📋 Examens' },
+  { to: '/homeworks',  label: '📝 Devoirs' },
+  { to: '/messages',   label: '✉️ Messages', badge: true },
 ]
 
 const NAV_TEACHER = [
-  { to: '/home',      label: 'Tableau de bord' },
-  { to: '/teacher',   label: 'Mes cours' },
-  { to: '/exams',     label: 'Examens' },
-  { to: '/homeworks', label: 'Devoirs' },
-  { to: '/messages',  label: 'Messages', badge: true },
+  { to: '/home',      label: '🏠 Tableau de bord' },
+  { to: '/teacher',   label: '📖 Mes cours' },
+  { to: '/homeworks', label: '📝 Devoirs' },
+  { to: '/messages',  label: '✉️ Messages', badge: true },
 ]
 
 const NAV_ADMIN = [
-  { to: '/home',     label: 'Tableau de bord' },
-  { to: '/admin',    label: 'Classes & Promotions' },
-  { to: '/messages', label: 'Messages', badge: true },
+  { to: '/home',     label: '🏠 Tableau de bord' },
+  { to: '/admin',    label: '🏫 Classes & Promotions' },
+  { to: '/courses',  label: '📚 Tous les cours' },
+  { to: '/messages', label: '✉️ Messages', badge: true },
 ]
 
 export default function Sidebar({ open, onClose }) {
