@@ -73,6 +73,13 @@ export default function CourseDetail() {
   const [sessionModal, setSessionModal] = useState(false)
   const [sessionForm,  setSessionForm]  = useState({ title: '', scheduled_at: '' })
 
+  /* ── Inscription étudiants ── */
+  const [enrollModal,    setEnrollModal]    = useState(false)
+  const [allStudents,    setAllStudents]    = useState([])   // tous les étudiants de la plateforme
+  const [selectedIds,    setSelectedIds]    = useState([])
+  const [enrollSearch,   setEnrollSearch]   = useState('')
+  const [enrollLoading,  setEnrollLoading]  = useState(false)
+
   const flash = (text, type = 'success') => {
     setMsg({ text, type })
     setTimeout(() => setMsg({ text: '', type: '' }), 3500)
@@ -85,12 +92,14 @@ export default function CourseDetail() {
     const load = async () => {
       setError(null)
       try {
-        const [cr, lr] = await Promise.all([
+        const [cr, lr, sr2] = await Promise.all([
           api.get(`/courses/${id}`),
           api.get(`/courses/${id}/lessons`).catch(() => ({ data: [] })),
+          api.get(`/sessions/course/${id}`).catch(() => ({ data: [] })),
         ])
         setCourse(cr.data)
         setLessons(lr.data)
+        setSessions(sr2.data)
 
         const sr = await api.get(`/admin/courses/${id}/students`).catch(() => ({ data: [] }))
         setStudents(sr.data)
@@ -183,26 +192,33 @@ export default function CourseDetail() {
 
   const switchTab = t => { setTab(t); loadTab(t) }
 
-  // Polling 5s sur l'onglet sessions pour détecter rapidement le démarrage
+  // Polling 5s — actif peu importe l'onglet pour ne jamais rater un live
   useEffect(() => {
-    if (tab !== 'sessions') return undefined
-    const timer = setInterval(async () => {
+    const poll = async () => {
       const r = await api.get(`/sessions/course/${id}`).catch(() => ({ data: [] }))
       const newSessions = r.data
-      // Détecter si une session vient de passer en "is_active"
       setSessions(prev => {
-        const justStarted = newSessions.find(ns => ns.is_active && !prev.find(ps => ps.id === ns.id && ps.is_active))
-        if (justStarted) {
-          // Notification visuelle
-          if (document.visibilityState === 'hidden' && Notification.permission === 'granted') {
-            new Notification('UniLearn — Cours en direct', { body: `"${justStarted.title}" vient de démarrer !`, icon: '/favicon.ico' })
+        // Détecter une nouvelle session "active" pour notifier l'étudiant
+        const justStarted = newSessions.find(
+          ns => ns.is_active && !prev.find(ps => ps.id === ns.id && ps.is_active)
+        )
+        if (justStarted && user?.role === 'student') {
+          // Afficher un flash dans l'UI
+          flash(`🔴 "${justStarted.title}" est en direct ! Allez dans "Cours en ligne" pour rejoindre.`, 'info')
+          // Notification navigateur si permission accordée
+          if (Notification.permission === 'granted') {
+            new Notification('UniLearn — Cours en direct', {
+              body: `"${justStarted.title}" vient de démarrer !`,
+              icon: '/favicon.ico',
+            }).onclick = () => window.focus()
           }
         }
         return newSessions
       })
-    }, 5000)
+    }
+    const timer = setInterval(poll, 5000)
     return () => clearInterval(timer)
-  }, [tab, id])
+  }, [id])
 
   /* ════════════════════════════════════════
      ACTIONS LEÇONS
@@ -310,6 +326,52 @@ export default function CourseDetail() {
     }
   }
 
+  /* ── Ouvrir le modal d'inscription admin ── */
+  const openEnrollModal = async () => {
+    setEnrollModal(true)
+    setSelectedIds([])
+    setEnrollSearch('')
+    if (allStudents.length === 0) {
+      try {
+        const r = await api.get('/admin/users')
+        setAllStudents(r.data.filter(u => u.role === 'student'))
+      } catch { setAllStudents([]) }
+    }
+  }
+
+  const toggleSelectStudent = (sid) => {
+    setSelectedIds(prev =>
+      prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]
+    )
+  }
+
+  const submitEnroll = async () => {
+    if (!selectedIds.length) return
+    setEnrollLoading(true)
+    try {
+      await api.post(`/admin/courses/${id}/enroll`, { student_ids: selectedIds })
+      const r = await api.get(`/admin/courses/${id}/students`)
+      setStudents(r.data)
+      setEnrollModal(false)
+      flash(`${selectedIds.length} étudiant(s) inscrit(s) avec succès`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur inscription', 'error')
+    } finally {
+      setEnrollLoading(false)
+    }
+  }
+
+  const unenroll = async (studentId, studentName) => {
+    if (!confirm(`Désinscrire ${studentName} de ce cours ?`)) return
+    try {
+      await api.delete(`/admin/courses/${id}/students/${studentId}`)
+      setStudents(prev => prev.filter(s => s.id !== studentId))
+      flash(`${studentName} désinscrit`)
+    } catch (err) {
+      flash(err.response?.data?.detail || 'Erreur', 'error')
+    }
+  }
+
   /* ── S'inscrire au cours ── */
   const enroll = async () => {
     try {
@@ -380,8 +442,24 @@ export default function CourseDetail() {
 
   return (
     <div>
+      {/* Bannière persistante session en direct — visible sur tous les onglets */}
+      {sessions.some(s => s.is_active) && (
+        <div style={{ background: '#ef4444', color: '#fff', borderRadius: 10, padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', display: 'inline-block', animation: 'blink 1s infinite' }} />
+            {sessions.filter(s => s.is_active).map(s => s.title).join(', ')} — Cours en direct maintenant !
+          </div>
+          <button
+            onClick={() => { setTab('sessions'); openLiveRoom(navigate, sessions.find(s => s.is_active)) }}
+            style={{ background: '#fff', color: '#ef4444', border: 'none', borderRadius: 8, padding: '6px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            ▶ Rejoindre le cours
+          </button>
+        </div>
+      )}
+
       {msg.text && (
-        <div className={`alert alert-${msg.type === 'error' ? 'error' : 'success'}`} style={{ marginBottom: 16 }}>
+        <div className={`alert alert-${msg.type === 'error' ? 'error' : msg.type === 'info' ? 'info' : 'success'}`} style={{ marginBottom: 16 }}>
           {msg.text}
         </div>
       )}
@@ -575,15 +653,21 @@ export default function CourseDetail() {
       ════════════════════════════════════════ */}
       {tab === 'students' && (
         <div>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <span style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600 }}>
-              {students.length} étudiant{students.length > 1 ? 's' : ''} inscrit{students.length > 1 ? 's' : ''}
+              {students.length} étudiant{students.length !== 1 ? 's' : ''} inscrit{students.length !== 1 ? 's' : ''}
             </span>
+            {canManage && (
+              <button className="btn btn-primary btn-sm" onClick={openEnrollModal}>
+                + Inscrire des étudiants
+              </button>
+            )}
           </div>
+
           {students.length === 0 ? (
             <div className="empty-state">
               <h3>Aucun étudiant inscrit</h3>
-              <p>Les étudiants s'inscrivent via leur classe ou par l'administrateur.</p>
+              <p>Cliquez sur "+ Inscrire des étudiants" pour commencer.</p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
@@ -605,6 +689,13 @@ export default function CourseDetail() {
                         </div>
                       )}
                     </div>
+                    {canManage && (
+                      <button
+                        onClick={() => unenroll(s.id, s.name)}
+                        title="Désinscrire"
+                        style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer', padding: '4px 6px', borderRadius: 6, flexShrink: 0 }}
+                      >✕</button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -906,6 +997,100 @@ export default function CourseDetail() {
       {/* ════════════════════════════════════════
           MODAL SESSION
       ════════════════════════════════════════ */}
+      {/* ════ MODAL INSCRIPTION ÉTUDIANTS ════ */}
+      {enrollModal && (
+        <div className="modal-overlay" onClick={() => setEnrollModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540, width: '95%' }}>
+            <div className="modal-header">
+              <span className="modal-title">Inscrire des étudiants</span>
+              <button className="modal-close" onClick={() => setEnrollModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+
+              {/* Barre de recherche */}
+              <input
+                autoFocus
+                placeholder="🔍 Rechercher par nom ou email…"
+                value={enrollSearch}
+                onChange={e => setEnrollSearch(e.target.value)}
+                className="form-control"
+                style={{ marginBottom: 12 }}
+              />
+
+              {/* Info sélection */}
+              {selectedIds.length > 0 && (
+                <div style={{ marginBottom: 10, fontSize: 13, color: 'var(--blue)', fontWeight: 600 }}>
+                  {selectedIds.length} étudiant{selectedIds.length > 1 ? 's' : ''} sélectionné{selectedIds.length > 1 ? 's' : ''}
+                  <button onClick={() => setSelectedIds([])} style={{ marginLeft: 10, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12 }}>
+                    Tout désélectionner
+                  </button>
+                </div>
+              )}
+
+              {/* Liste des étudiants */}
+              <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {allStudents.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24, fontSize: 13 }}>
+                    Chargement…
+                  </div>
+                ) : (() => {
+                  const query = enrollSearch.toLowerCase().trim()
+                  const alreadyIds = new Set(students.map(s => s.id))
+                  const filtered = allStudents.filter(s =>
+                    !alreadyIds.has(s.id) &&
+                    (!query || s.name?.toLowerCase().includes(query) || s.email?.toLowerCase().includes(query))
+                  )
+                  if (filtered.length === 0) return (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24, fontSize: 13 }}>
+                      {query ? 'Aucun résultat' : 'Tous les étudiants sont déjà inscrits'}
+                    </div>
+                  )
+                  return filtered.map(s => {
+                    const selected = selectedIds.includes(s.id)
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => toggleSelectStudent(s.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                          background: selected ? '#eff6ff' : '#f8fafc',
+                          border: `1px solid ${selected ? 'var(--blue)' : '#e2e8f0'}`,
+                          transition: 'all .15s',
+                        }}
+                      >
+                        {/* Checkbox visuelle */}
+                        <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, border: `2px solid ${selected ? 'var(--blue)' : '#cbd5e1'}`, background: selected ? 'var(--blue)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, transition: 'all .15s' }}>
+                          {selected && '✓'}
+                        </div>
+                        {/* Avatar */}
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: '#eff6ff', color: 'var(--blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>
+                          {s.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.email}</div>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setEnrollModal(false)}>Annuler</button>
+              <button
+                className="btn btn-primary"
+                disabled={selectedIds.length === 0 || enrollLoading}
+                onClick={submitEnroll}
+              >
+                {enrollLoading ? 'Inscription…' : `Inscrire ${selectedIds.length > 0 ? selectedIds.length + ' étudiant' + (selectedIds.length > 1 ? 's' : '') : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {sessionModal && (
         <div className="modal-overlay" onClick={() => setSessionModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
