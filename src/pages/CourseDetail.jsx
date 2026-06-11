@@ -183,9 +183,24 @@ export default function CourseDetail() {
 
   const switchTab = t => { setTab(t); loadTab(t) }
 
+  // Polling 5s sur l'onglet sessions pour détecter rapidement le démarrage
   useEffect(() => {
     if (tab !== 'sessions') return undefined
-    const timer = setInterval(() => loadTab('sessions', true), 30000)
+    const timer = setInterval(async () => {
+      const r = await api.get(`/sessions/course/${id}`).catch(() => ({ data: [] }))
+      const newSessions = r.data
+      // Détecter si une session vient de passer en "is_active"
+      setSessions(prev => {
+        const justStarted = newSessions.find(ns => ns.is_active && !prev.find(ps => ps.id === ns.id && ps.is_active))
+        if (justStarted) {
+          // Notification visuelle
+          if (document.visibilityState === 'hidden' && Notification.permission === 'granted') {
+            new Notification('UniLearn — Cours en direct', { body: `"${justStarted.title}" vient de démarrer !`, icon: '/favicon.ico' })
+          }
+        }
+        return newSessions
+      })
+    }, 5000)
     return () => clearInterval(timer)
   }, [tab, id])
 
@@ -717,7 +732,28 @@ export default function CourseDetail() {
               <p>Planifiez votre premier cours en ligne.</p>
             </div>
           ) : sessions.map(s => (
-            <div key={s.id} className="card" style={{ marginBottom: 10 }}>
+            <div key={s.id} className="card" style={{
+              marginBottom: 10,
+              border: s.is_active ? '2px solid #ef4444' : undefined,
+              boxShadow: s.is_active ? '0 0 0 4px rgba(239,68,68,.1)' : undefined,
+              transition: 'box-shadow .3s',
+            }}>
+              {/* Bannière "En direct" bien visible */}
+              {s.is_active && (
+                <div style={{ background: '#ef4444', color: '#fff', padding: '6px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 13 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'inline-block', animation: 'blink 1s infinite' }} />
+                    EN DIRECT — {s.title}
+                  </div>
+                  <button
+                    onClick={() => openLiveRoom(navigate, s)}
+                    style={{ background: '#fff', color: '#ef4444', border: 'none', borderRadius: 8, padding: '5px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                  >
+                    ▶ Rejoindre maintenant
+                  </button>
+                </div>
+              )}
+
               <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)' }}>{s.title}</div>
@@ -727,28 +763,27 @@ export default function CourseDetail() {
                     </div>
                   )}
                 </div>
-                <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600, background: s.is_active ? '#d1fae5' : '#f1f5f9', color: s.is_active ? '#065f46' : '#64748b' }}>
-                  {s.is_active ? '🔴 En direct' : s.ended_at ? 'Terminé' : 'Planifié'}
+                <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600, background: s.is_active ? '#fee2e2' : '#f1f5f9', color: s.is_active ? '#991b1b' : '#64748b' }}>
+                  {s.is_active ? '🔴 En direct' : s.ended_at ? '✅ Terminé' : '📅 Planifié'}
                 </span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {!s.is_active && !s.ended_at && canManage && (
                     <button className="btn btn-primary btn-sm" disabled={busySessionId === s.id} onClick={() => startSession(s)}>🔴 Démarrer le live</button>
                   )}
-                  {s.is_active && (
-                    <>
-                      <button className="btn btn-primary btn-sm" onClick={() => openLiveRoom(navigate, s)}>Rejoindre</button>
-                      {canManage && <button className="btn btn-outline btn-sm" disabled={busySessionId === s.id} onClick={() => endSession(s)}>⏹ Terminer et sauvegarder</button>}
-                    </>
+                  {s.is_active && canManage && (
+                    <button className="btn btn-outline btn-sm" disabled={busySessionId === s.id} onClick={() => endSession(s)}>⏹ Terminer</button>
                   )}
-                  {canManage && (
+                  {canManage && !s.is_active && (
                     <button className="btn btn-danger btn-sm" onClick={() => deleteSession(s)}>Supprimer</button>
                   )}
                 </div>
               </div>
-              {(!canManage && (s.is_active || s.recording_url)) && <LiveReplayPlayer session={s} />}
+
+              {/* Rediffusion pour les étudiants */}
+              {!canManage && !s.is_active && s.recording_url && <LiveReplayPlayer session={s} />}
               {canManage && s.recording_url && !s.is_active && (
-                <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-muted)' }}>
-                  Rediffusion : <a href={s.recording_url} target="_blank" rel="noreferrer">ouvrir sur YouTube</a>
+                <div style={{ padding: '0 16px 12px', fontSize: 13, color: 'var(--text-muted)' }}>
+                  🎬 Rediffusion disponible
                 </div>
               )}
             </div>
