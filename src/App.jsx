@@ -20,7 +20,6 @@ import LoginPage from './pages/LoginPage'
 import ProfilePage from './pages/ProfilePage'
 import LandingPage from './pages/LandingPage'
 import CallbackPage from './pages/CallbackPage'
-import YouTubeSetupPage from './pages/YouTubeSetupPage'
 
 function ProtectedRoute({ children }) {
   const { token } = useAuthStore()
@@ -34,10 +33,8 @@ function AppLayout() {
   const canViewClasses = ['admin', 'teacher', 'student'].includes(user?.role)
 
   const isViewer = location.pathname.startsWith('/lesson/')
-  const isRoom   = location.pathname.startsWith('/room/')
 
   if (isViewer) return <Routes><Route path="/lesson/:id" element={<LessonViewer />} /></Routes>
-  if (isRoom)   return <Routes><Route path="/room/:roomId" element={<VideoRoom />} /></Routes>
 
   const pageTitles = {
     '/home':       'Tableau de bord',
@@ -50,7 +47,6 @@ function AppLayout() {
     '/homeworks':  'Devoirs',
     '/classes':    'Classes & Promotions',
     '/profile':    'Mon profil',
-    '/youtube-setup': '🎬 Configuration YouTube',
   }
   const title = pageTitles[location.pathname] || 'UniLearn'
 
@@ -81,7 +77,11 @@ function AppLayout() {
             <Route path="/courses"         element={<CoursesPage />} />
             <Route path="/courses/:id"     element={<CourseDetail />} />
             <Route path="/my-courses"      element={<CoursesPage myOnly />} />
-            <Route path="/teacher"         element={<TeacherDashboard />} />
+            <Route path="/teacher"         element={
+              user?.role === 'teacher' || user?.role === 'admin'
+                ? <TeacherDashboard />
+                : <Navigate to="/home" replace />
+            } />
             <Route path="/messages"        element={<MessagesPage />} />
             <Route path="/admin"           element={
               user?.role === 'admin'
@@ -102,7 +102,6 @@ function AppLayout() {
                 : <Navigate to="/home" replace />
             } />
             <Route path="/profile"         element={<ProfilePage />} />
-            <Route path="/youtube-setup"   element={<YouTubeSetupPage />} />
             <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
         </main>
