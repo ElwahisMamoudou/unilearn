@@ -6,6 +6,7 @@ from datetime import datetime
 
 from models import get_db, User, Course, Enrollment, ForumQuestion, ForumReply
 from auth import get_current_user
+from routes.notifications import create_notification
 
 router = APIRouter(prefix="/api/forum", tags=["forum"])
 
@@ -139,7 +140,19 @@ def create_question(
         course_id=course_id, author_id=me.id,
         title=body.title.strip(), body=body.body.strip(),
     )
-    db.add(q); db.commit(); db.refresh(q)
+    db.add(q); db.flush()
+
+    # Notifier le prof du cours (sauf si c'est lui qui poste)
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if course and course.teacher_id and course.teacher_id != me.id:
+        create_notification(
+            db, course.teacher_id, "forum",
+            f"Nouvelle question de {me.name}",
+            body.title.strip()[:120],
+            f"/forum?course={course_id}&question={q.id}",
+        )
+
+    db.commit(); db.refresh(q)
     return _fmt_question(q)
 
 
@@ -200,7 +213,18 @@ def create_reply(
         question_id=question_id, author_id=me.id,
         body=body.body.strip(),
     )
-    db.add(reply); db.commit(); db.refresh(reply)
+    db.add(reply); db.flush()
+
+    # Notifier l'auteur de la question (sauf s'il répond à son propre post)
+    if q.author_id != me.id:
+        create_notification(
+            db, q.author_id, "forum",
+            f"{me.name} a répondu à votre question",
+            q.title[:120],
+            f"/forum?course={q.course_id}&question={q.id}",
+        )
+
+    db.commit(); db.refresh(reply)
     return ReplyOut(
         id=reply.id, question_id=reply.question_id,
         author_id=reply.author_id, author_name=me.name,
