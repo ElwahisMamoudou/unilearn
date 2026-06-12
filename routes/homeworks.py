@@ -346,7 +346,18 @@ async def submit_homework(
         comment     = comment or None,
         late        = now > due,
     )
-    db.add(sub)
+    db.add(sub); db.flush()
+
+    # Notifier le prof du cours
+    course = db.query(Course).filter(Course.id == hw.course_id).first()
+    if course and course.teacher_id:
+        create_notification(
+            db, course.teacher_id, "submission",
+            f"Nouvelle soumission : {hw.title}",
+            f"{me.name} a rendu son devoir" + (" (en retard)" if sub.late else ""),
+            f"/homeworks?course={hw.course_id}",
+        )
+
     db.commit()
     db.refresh(sub)
     return _sub_dict(sub)
