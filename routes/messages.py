@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from routes.notifications import create_notification
 
 from models import get_db, User, Message
 from auth import get_current_user
@@ -120,7 +121,16 @@ def send_message(
         sender_id=me.id, receiver_id=body.receiver_id,
         subject=body.subject.strip(), body=body.body.strip(),
     )
-    db.add(msg); db.commit(); db.refresh(msg)
+    db.add(msg); db.flush()
+
+    create_notification(
+        db, body.receiver_id, "message",
+        f"Nouveau message de {me.name}",
+        body.subject.strip()[:120],
+        "/messages",
+    )
+
+    db.commit(); db.refresh(msg)
     return _fmt(msg)
 
 
