@@ -21,44 +21,30 @@ class CategoryOut(BaseModel):
 
 class LessonOut(BaseModel):
     id: int
+    course_id: int
     title: str
-    content_type: str | None = None
-    duration_min: int | None = None
-    order: int
     description: str | None = None
-    file_url: str | None = None
-    is_free: bool = False
+    type: str | None = None
+    file_path: str | None = None
+    youtube_url: str | None = None
+    duration: str | None = None
+    order: int = 0
     class Config:
         from_attributes = True
-
+    
     @classmethod
     def from_orm_lesson(cls, lesson: "Lesson") -> "LessonOut":
-        file_url = (
-            getattr(lesson, 'file_url',  None) or
-            getattr(lesson, 'file_path', None) or
-            getattr(lesson, 'video_url', None)
-        )
-        content_type = (
-            getattr(lesson, 'content_type', None) or
-            getattr(lesson, 'type', None)
-        )
-        duration_min = getattr(lesson, 'duration_min', None)
-        if duration_min is None:
-            raw = getattr(lesson, 'duration', None)
-            if isinstance(raw, int):
-                duration_min = raw
-            elif isinstance(raw, str) and raw.isdigit():
-                duration_min = int(raw)
-
+        """Convertir un Lesson ORM vers LessonOut Pydantic"""
         return cls(
             id=lesson.id,
+            course_id=lesson.course_id,
             title=lesson.title,
-            content_type=content_type,
-            duration_min=duration_min,
-            order=getattr(lesson, 'order', 0),
-            description=getattr(lesson, 'description', None),
-            file_url=file_url,
-            is_free=getattr(lesson, 'is_free', False),
+            description=lesson.description,
+            type=lesson.type,
+            file_path=lesson.file_path,
+            youtube_url=lesson.youtube_url,
+            duration=lesson.duration,
+            order=lesson.order or 0,
         )
 
 class CourseOut(BaseModel):
