@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from models import get_db, User, Course, ClassGroup, Enrollment, Exam, ExamQuestion, ExamSubmission, ExamViolation
 from auth import get_current_user
+from routes.notifications import notify_course_students, create_notification
 
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
@@ -354,6 +355,14 @@ def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(
         eq.choices = q.choices
         db.add(eq)
 
+    if exam.is_published:
+        notify_course_students(
+            db, body.course_id, "exam",
+            f"Nouvel examen : {exam.title}",
+            f"Durée : {exam.duration_min} min" + (f" — disponible jusqu'au {exam.ends_at.strftime('%d/%m/%Y %H:%M')}" if exam.ends_at else ""),
+            f"/exams?course={body.course_id}",
+        )
+
     db.commit()
     db.refresh(exam)
     return _enrich_exam(exam)
@@ -443,6 +452,14 @@ def update_exam(
         )
         eq.choices = q.choices
         db.add(eq)
+
+    if exam.is_published:
+        notify_course_students(
+            db, body.course_id, "exam",
+            f"Nouvel examen : {exam.title}",
+            f"Durée : {exam.duration_min} min" + (f" — disponible jusqu'au {exam.ends_at.strftime('%d/%m/%Y %H:%M')}" if exam.ends_at else ""),
+            f"/exams?course={body.course_id}",
+        )
 
     db.commit()
     db.refresh(exam)
@@ -624,6 +641,15 @@ def grade_submission(sub_id: int, body: GradeIn, db: Session = Depends(get_db), 
     sub.score     = auto_score + manual_score
     sub.max_score = max_score
     sub.graded    = True
+    db.flush()
+
+    create_notification(
+        db, sub.student_id, "grade",
+        f"Examen corrigé : {exam.title}",
+        f"Note : {sub.score:.1f}/{sub.max_score:.0f}",
+        f"/exams?course={exam.course_id}",
+    )
+
     db.commit()
     db.refresh(sub)
     return _serialize_sub(sub, exam, db)
