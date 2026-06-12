@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from auth import get_current_user
+from routes.notifications import notify_course_students
 from models import ClassGroup, Course, Enrollment, User, VideoSession, get_db
 
 try:
@@ -192,6 +193,14 @@ def start_session(
     session.is_recording  = False
     session.ended_at      = None
     session.recording_url = None
+    db.flush()
+
+    notify_course_students(
+        db, session.course_id, "session",
+        f"🔴 Cours en direct : {session.title}",
+        "Le cours en ligne vient de démarrer, rejoignez-le maintenant !",
+        f"/courses/{session.course_id}",
+    )
 
     db.commit()
     db.refresh(session)
