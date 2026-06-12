@@ -24,7 +24,7 @@ export default function NotificationBell() {
   // Polling toutes les 30 secondes
   useEffect(() => {
     load()
-    const interval = setInterval(load, 30000)
+    const interval = setInterval(load, 15000)
     return () => clearInterval(interval)
   }, [token])
 
@@ -53,12 +53,22 @@ export default function NotificationBell() {
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })))
   }
 
+  const deleteNotif = async (e, notif) => {
+    e.stopPropagation()
+    await api.delete(`/notifications/${notif.id}`).catch(() => {})
+    setNotifs(prev => prev.filter(n => n.id !== notif.id))
+  }
+
   const iconFor = (type) => {
     if (type === 'message')     return '💬'
     if (type === 'exam')        return '📝'
     if (type === 'homework')    return '📚'
     if (type === 'correction')  return '✅'
     if (type === 'grade')       return '🎯'
+    if (type === 'lesson')      return '🎬'
+    if (type === 'forum')       return '💭'
+    if (type === 'session')     return '🔴'
+    if (type === 'submission')  return '📤'
     return '🔔'
   }
 
@@ -148,15 +158,29 @@ export default function NotificationBell() {
                 <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>{iconFor(n.type)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: 'var(--navy)', lineHeight: 1.4, fontWeight: n.is_read ? 400 : 600 }}>
-                    {n.message}
+                    {n.title}
                   </div>
+                  {n.body && (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.3 }}>
+                      {n.body}
+                    </div>
+                  )}
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
                     {timeAgo(n.created_at)}
                   </div>
                 </div>
-                {!n.is_read && (
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', flexShrink: 0, marginTop: 4 }} />
-                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  {!n.is_read && (
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6', marginTop: 4 }} />
+                  )}
+                  <button
+                    onClick={(e) => deleteNotif(e, n)}
+                    title="Supprimer"
+                    style={{ background: 'none', border: 'none', color: 'rgba(0,0,0,.25)', fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1 }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'rgba(0,0,0,.25)'}
+                  >×</button>
+                </div>
               </div>
             ))}
           </div>
