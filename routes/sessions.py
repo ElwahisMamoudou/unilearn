@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from auth import get_current_user
-from routes.notifications import notify_course_students
+from services.notifications import send_notification
 from models import ClassGroup, Course, Enrollment, User, VideoSession, get_db
 
 try:
@@ -118,7 +118,7 @@ def list_sessions(
     )
     for s in sessions:
         _prepare_session_out(s, me)
-    return sessions  # FIX: return manquant
+    return sessions
 
 
 # ── Récupérer une session par salle ────────────────
@@ -170,7 +170,7 @@ def create_session(
 # ── Démarrer une session ───────────────────────────
 
 @router.post("/{session_id}/start", response_model=SessionOut)
-def start_session(
+async def start_session(
     session_id: int,
     db: Session = Depends(get_db),
     me: User    = Depends(get_current_user),
@@ -195,7 +195,7 @@ def start_session(
     session.recording_url = None
     db.flush()
 
-    notify_course_students(
+    await send_notification(
         db, session.course_id, "session",
         f"🔴 Cours en direct : {session.title}",
         "Le cours en ligne vient de démarrer, rejoignez-le maintenant !",
