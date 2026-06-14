@@ -434,6 +434,7 @@ class Notification(Base):
     body       = Column(Text, nullable=True)
     link       = Column(String(300), nullable=True)
     is_read    = Column(Boolean, default=False)
+    priority   = Column(String(20), default="normal")
     created_at = Column(DateTime, default=datetime.utcnow)
     user = relationship("User", back_populates="notifications")
 
