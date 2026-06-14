@@ -199,4 +199,3 @@ def get_contacts(
         .all()
     )
     return users
-    
