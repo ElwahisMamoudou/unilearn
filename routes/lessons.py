@@ -7,7 +7,7 @@ from typing import Optional
 
 from models import Lesson, Course, ClassGroup, Enrollment, Progress, User, get_db
 from auth import get_current_user, require_teacher, verify_token
-from routes.notifications import notify_course_students
+from services.notifications import send_notification
 
 router = APIRouter(prefix="/api/lessons", tags=["lessons"])
 
@@ -182,7 +182,7 @@ async def upload_lesson(
     )
     db.add(lesson); db.flush()
 
-    notify_course_students(
+    await send_notification(
         db, course_id, "lesson",
         f"Nouvelle leçon : {title}",
         "Une nouvelle leçon est disponible dans votre cours.",
