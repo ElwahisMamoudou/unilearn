@@ -546,7 +546,11 @@ export default function CourseDetail() {
           ONGLETS
       ════════════════════════════════════════ */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 24, overflowX: 'auto' }}>
-        {TABS.map(({ key, label }) => (
+        {TABS.filter(t => {
+          // Masquer "Étudiants" pour les étudiants (info administrative)
+          if (t.key === 'students' && !canManage) return false
+          return true
+        }).map(({ key, label }) => (
           <button key={key} onClick={() => switchTab(key)} style={{
             padding: '10px 18px', border: 'none', background: 'none',
             cursor: 'pointer', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap',
@@ -666,8 +670,8 @@ export default function CourseDetail() {
 
           {students.length === 0 ? (
             <div className="empty-state">
-              <h3>Aucun étudiant inscrit</h3>
-              <p>Cliquez sur "+ Inscrire des étudiants" pour commencer.</p>
+              <h3>{canManage ? 'Aucun étudiant inscrit' : 'Pas d'étudiants'}</h3>
+              <p>{canManage ? 'Cliquez sur "+ Inscrire des étudiants" pour commencer.' : 'Attendez que l'administrateur inscrive des étudiants à ce cours.'}</p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
