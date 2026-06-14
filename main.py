@@ -20,6 +20,7 @@ from models import (
     get_db
 )
 from auth import hash_password, verify_password, get_current_user
+from services.notifications import cleanup_connections
 
 from routes import (
     auth          as auth_routes,
@@ -306,3 +307,12 @@ def global_exception(request, exc):
 @app.get("/")
 def root():
     return {"message": "UniLearn API v5", "status": "running", "docs": "/docs"}
+
+
+# ─────────────────────────────────────────────
+# SHUTDOWN CLEANUP
+# ─────────────────────────────────────────────
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Nettoie les connexions WebSocket au shutdown."""
+    await cleanup_connections()
