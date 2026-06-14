@@ -1,132 +1,213 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from typing import List, Optional
+"""
+Services de notifications WebSocket et broadcast.
+"""
+
+import logging
 from datetime import datetime
+from typing import Dict, Set
+from fastapi import WebSocket
+from sqlalchemy.orm import Session
 
-from models import get_db, User, Notification, Enrollment, Exam, Homework
-from auth import get_current_user
+logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/notifications", tags=["notifications"])
-
-
-# ── Schémas ───────────────────────────────────────
-class NotifOut(BaseModel):
-    id: int; type: str; title: str
-    body: Optional[str]; link: Optional[str]
-    is_read: bool; created_at: datetime
-    class Config: from_attributes = True
+# Stockage des connexions WebSocket actives par user_id
+active_connections: Dict[int, Set[WebSocket]] = {}
 
 
-# ── Helper : créer une notification ───────────────
-def create_notification(db: Session, user_id: int, type: str, title: str, body: str = None, link: str = None):
+async def add_connection(user_id: int, websocket: WebSocket):
+    """Ajoute une connexion WebSocket pour un utilisateur."""
+    if user_id not in active_connections:
+        active_connections[user_id] = set()
+    active_connections[user_id].add(websocket)
+    logger.info(f"✅ WebSocket connected for user {user_id}")
+
+
+async def remove_connection(user_id: int, websocket: WebSocket):
+    """Retire une connexion WebSocket."""
+    if user_id in active_connections:
+        active_connections[user_id].discard(websocket)
+        if not active_connections[user_id]:
+            del active_connections[user_id]
+    logger.info(f"❌ WebSocket disconnected for user {user_id}")
+
+
+async def broadcast_to_user(user_id: int, message: dict):
+    """Envoie un message à toutes les connexions WebSocket d'un utilisateur."""
+    if user_id not in active_connections:
+        return
+    
+    dead_connections = set()
+    for websocket in active_connections[user_id]:
+        try:
+            await websocket.send_json(message)
+        except Exception as e:
+            logger.error(f"❌ Erreur envoi WebSocket user {user_id}: {e}")
+            dead_connections.add(websocket)
+    
+    # Nettoie les connexions mortes
+    for ws in dead_connections:
+        await remove_connection(user_id, ws)
+
+
+async def send_notification(
+    db: Session,
+    user_id: int,
+    notif_type: str,
+    title: str,
+    body: str = None,
+    link: str = None,
+    priority: str = "normal"
+):
+    """
+    Crée une notification ET l'envoie en temps réel via WebSocket.
+    
+    Args:
+        db: Session SQLAlchemy
+        user_id: ID utilisateur destinataire
+        notif_type: Type (lesson_added, session_started, etc.)
+        title: Titre court
+        body: Contenu détaillé
+        link: URL pour action directe
+        priority: Priorité (low, normal, high, urgent)
+    """
+    from models import Notification
+    
+    # Crée en DB
     notif = Notification(
-        user_id=user_id, type=type,
-        title=title, body=body, link=link
+        user_id=user_id,
+        type=notif_type,
+        title=title,
+        body=body,
+        link=link,
+        priority=priority,
+        created_at=datetime.utcnow()
     )
     db.add(notif)
+    db.commit()
+    
+    # Envoie en temps réel
+    await broadcast_to_user(user_id, {
+        "type": "notification",
+        "id": notif.id,
+        "notif_type": notif_type,
+        "title": title,
+        "body": body,
+        "link": link,
+        "priority": priority,
+        "is_read": False,
+        "created_at": notif.created_at.isoformat()
+    })
+    
+    logger.info(f"✉️ Notification sent to user {user_id}: {title}")
 
 
-def notify_course_students(db: Session, course_id: int, type: str, title: str, body: str = None, link: str = None):
-    """Notifie tous les étudiants inscrits à un cours."""
-    enrollments = db.query(Enrollment).filter_by(course_id=course_id).all()
-    for e in enrollments:
-        create_notification(db, e.student_id, type, title, body, link)
+async def notify_lesson_added(db: Session, course_id: int, lesson_title: str):
+    """
+    Helper : Notifie tous les étudiants inscrits qu'une leçon a été ajoutée.
+    """
+    from models import Enrollment
+    
+    # Récupère les inscriptions au cours
+    enrollments = db.query(Enrollment).filter(Enrollment.course_id == course_id).all()
+    
+    for enrollment in enrollments:
+        await send_notification(
+            db=db,
+            user_id=enrollment.student_id,
+            notif_type="lesson_added",
+            title=f"Nouvelle leçon : {lesson_title}",
+            body=f"Une nouvelle leçon '{lesson_title}' a été ajoutée à votre cours.",
+            link=f"/courses/{course_id}/lessons",
+            priority="normal"
+        )
 
 
-# ── Endpoints ─────────────────────────────────────
-@router.get("", response_model=List[NotifOut])
-def get_notifications(
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    return (
-        db.query(Notification)
-        .filter_by(user_id=me.id)
-        .order_by(Notification.created_at.desc())
-        .limit(50)
-        .all()
+async def notify_live_session_started(db: Session, course_id: int, course_title: str):
+    """
+    Helper : Notifie tous les étudiants inscrits qu'une session live a commencé.
+    """
+    from models import Enrollment
+    
+    enrollments = db.query(Enrollment).filter(Enrollment.course_id == course_id).all()
+    
+    for enrollment in enrollments:
+        await send_notification(
+            db=db,
+            user_id=enrollment.student_id,
+            notif_type="session_started",
+            title=f"Live : {course_title}",
+            body=f"Une session en direct a commencé dans '{course_title}'. Rejoignez-la maintenant !",
+            link=f"/live/{course_id}",
+            priority="high"
+        )
+
+
+async def notify_homework_assigned(db: Session, course_id: int, homework_title: str, student_id: int):
+    """
+    Helper : Notifie un étudiant qu'un devoir a été assigné.
+    """
+    await send_notification(
+        db=db,
+        user_id=student_id,
+        notif_type="homework_assigned",
+        title=f"Nouveau devoir : {homework_title}",
+        body=f"Un devoir '{homework_title}' a été assigné à votre groupe.",
+        link=f"/courses/{course_id}/homeworks",
+        priority="normal"
     )
 
 
-@router.get("/unread-count")
-def unread_count(
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    count = db.query(Notification).filter_by(user_id=me.id, is_read=False).count()
-    return {"count": count}
+async def notify_homework_graded(db: Session, homework_title: str, grade: float, student_id: int):
+    """
+    Helper : Notifie un étudiant que son devoir a été noté.
+    """
+    await send_notification(
+        db=db,
+        user_id=student_id,
+        notif_type="homework_graded",
+        title=f"Devoir noté : {homework_title}",
+        body=f"Votre devoir '{homework_title}' a été noté : {grade}/20",
+        priority="normal"
+    )
 
 
-@router.patch("/{notif_id}/read")
-def mark_read(
-    notif_id: int,
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    notif = db.query(Notification).filter_by(id=notif_id, user_id=me.id).first()
-    if not notif:
-        raise HTTPException(404, "Notification introuvable")
-    notif.is_read = True
-    db.commit()
-    return {"ok": True}
+async def notify_exam_result(db: Session, exam_title: str, score: float, student_id: int):
+    """
+    Helper : Notifie un étudiant que ses résultats d'examen sont publiés.
+    """
+    await send_notification(
+        db=db,
+        user_id=student_id,
+        notif_type="exam_result",
+        title=f"Résultats : {exam_title}",
+        body=f"Vos résultats pour '{exam_title}' sont maintenant disponibles : {score}/20",
+        link=f"/exams/results",
+        priority="normal"
+    )
 
 
-@router.patch("/read-all")
-def mark_all_read(
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    db.query(Notification).filter_by(user_id=me.id, is_read=False).update({"is_read": True})
-    db.commit()
-    return {"ok": True}
+async def notify_message_received(db: Session, sender_name: str, student_id: int):
+    """
+    Helper : Notifie un étudiant qu'il a reçu un message.
+    """
+    await send_notification(
+        db=db,
+        user_id=student_id,
+        notif_type="message_received",
+        title=f"Nouveau message de {sender_name}",
+        body=f"Vous avez un nouveau message de {sender_name}.",
+        link=f"/messages",
+        priority="normal"
+    )
 
 
-@router.delete("/{notif_id}", status_code=204)
-def delete_notification(
-    notif_id: int,
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    notif = db.query(Notification).filter_by(id=notif_id, user_id=me.id).first()
-    if not notif:
-        raise HTTPException(404, "Notification introuvable")
-    db.delete(notif)
-    db.commit()
-
-
-# ── Rappels automatiques (appelé par un cron ou au démarrage) ──
-@router.post("/send-reminders", tags=["admin"])
-def send_exam_reminders(
-    db: Session = Depends(get_db),
-    me: User    = Depends(get_current_user),
-):
-    """Envoie des rappels pour les examens qui ferment dans moins de 24h."""
-    if me.role != "admin":
-        raise HTTPException(403, "Accès refusé")
-
-    from datetime import timezone, timedelta
-    now = datetime.now(timezone.utc)
-    in_24h = now + timedelta(hours=24)
-
-    exams = db.query(Exam).filter(
-        Exam.is_published == True,
-        Exam.ends_at != None,
-    ).all()
-
-    sent = 0
-    for exam in exams:
-        ends = exam.ends_at.replace(tzinfo=timezone.utc) if exam.ends_at.tzinfo is None else exam.ends_at
-        if now < ends <= in_24h:
-            enrollments = db.query(Enrollment).filter_by(course_id=exam.course_id).all()
-            for e in enrollments:
-                create_notification(
-                    db, e.student_id,
-                    type="reminder",
-                    title=f"Rappel : examen '{exam.title}' ferme bientôt",
-                    body=f"Clôture le {ends.strftime('%d/%m/%Y à %H:%M')} UTC",
-                    link=f"/exams?course={exam.course_id}",
-                )
-                sent += 1
-    db.commit()
-    return {"reminders_sent": sent}
+async def cleanup_connections():
+    """Nettoie toutes les connexions WebSocket au shutdown."""
+    for user_id in list(active_connections.keys()):
+        for websocket in list(active_connections[user_id]):
+            try:
+                await websocket.close()
+            except Exception as e:
+                logger.error(f"Erreur fermeture WebSocket {user_id}: {e}")
+    active_connections.clear()
+    logger.info("✅ Toutes les connexions WebSocket fermées")
