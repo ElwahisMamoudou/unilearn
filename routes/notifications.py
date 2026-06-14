@@ -185,3 +185,44 @@ def send_exam_reminders(
     
     db.commit()
     return {"reminders_sent": sent}
+
+
+async def notify_course_students(
+    db,
+    course_id: int,
+    notif_type: str,
+    title: str,
+    body: str,
+    link: str = None,
+):
+    enrollments = (
+        db.query(Enrollment)
+        .filter_by(course_id=course_id)
+        .all()
+    )
+
+    for enrollment in enrollments:
+        notif = Notification(
+            user_id=enrollment.student_id,
+            type=notif_type,
+            title=title,
+            body=body,
+            link=link,
+        )
+
+        db.add(notif)
+
+        try:
+            await broadcast_to_user(
+                enrollment.student_id,
+                {
+                    "type": notif_type,
+                    "title": title,
+                    "body": body,
+                    "link": link,
+                },
+            )
+        except Exception:
+            pass
+
+
