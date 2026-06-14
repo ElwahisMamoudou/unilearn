@@ -6,7 +6,7 @@ from datetime import datetime
 
 from models import get_db, User, Course, Enrollment, ForumQuestion, ForumReply
 from auth import get_current_user
-from routes.notifications import create_notification
+from services.notifications import send_notification
 
 router = APIRouter(prefix="/api/forum", tags=["forum"])
 
@@ -125,7 +125,7 @@ def get_question(
 # ── Créer une question ────────────────────────────
 
 @router.post("/course/{course_id}", response_model=QuestionOut, status_code=201)
-def create_question(
+async def create_question(
     course_id: int,
     body: QuestionIn,
     db: Session = Depends(get_db),
@@ -145,7 +145,7 @@ def create_question(
     # Notifier le prof du cours (sauf si c'est lui qui poste)
     course = db.query(Course).filter(Course.id == course_id).first()
     if course and course.teacher_id and course.teacher_id != me.id:
-        create_notification(
+        await send_notification(
             db, course.teacher_id, "forum",
             f"Nouvelle question de {me.name}",
             body.title.strip()[:120],
@@ -195,7 +195,7 @@ def toggle_close_question(
 # ── Répondre à une question ───────────────────────
 
 @router.post("/post/{question_id}/reply", response_model=ReplyOut, status_code=201)
-def create_reply(
+async def create_reply(
     question_id: int,
     body: ReplyIn,
     db: Session  = Depends(get_db),
@@ -217,7 +217,7 @@ def create_reply(
 
     # Notifier l'auteur de la question (sauf s'il répond à son propre post)
     if q.author_id != me.id:
-        create_notification(
+        await send_notification(
             db, q.author_id, "forum",
             f"{me.name} a répondu à votre question",
             q.title[:120],
