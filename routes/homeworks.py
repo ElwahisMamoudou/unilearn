@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from models import get_db, User, Course, ClassGroup, Enrollment, Homework, HomeworkSubmission
 from auth import get_current_user, require_teacher
-from routes.notifications import create_notification, notify_course_students
+from services.notifications import send_notification
 
 router = APIRouter(prefix="/api/homeworks", tags=["homeworks"])
 
@@ -119,7 +119,7 @@ async def create_homework(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db, manage=True)  # FIX: 1 espace parasite supprimé
+    _ensure_course_access(course, me, db, manage=True)
 
     try:
         due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
@@ -143,7 +143,7 @@ async def create_homework(
     db.flush()
 
     if is_published:
-        notify_course_students(
+        await send_notification(
             db, course_id, "homework",
             f"Nouveau devoir : {title}",
             f"À rendre avant le {due_dt.strftime('%d/%m/%Y à %H:%M')}",
@@ -166,7 +166,7 @@ def download_homework_file(
     hw = db.query(Homework).filter(Homework.id == hw_id).first()
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
-    _ensure_homework_access(hw, me, db)  # FIX: 5 espaces → 4
+    _ensure_homework_access(hw, me, db)
 
     if me.role == "student" and not hw.is_published:
         raise HTTPException(403, "Devoir non publié")
@@ -198,7 +198,7 @@ def list_homeworks(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    _ensure_course_access(course, me, db)  # FIX: appel sur course (pas hw inexistant) + indentation correcte
+    _ensure_course_access(course, me, db)
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
     result = []
@@ -291,7 +291,7 @@ def delete_homework(
     if not hw:
         raise HTTPException(404, "Devoir introuvable")
 
-    _ensure_homework_access(hw, me, db, manage=True)  # FIX: 2 espaces → 4 (ligne vide parasite supprimée)
+    _ensure_homework_access(hw, me, db, manage=True)
 
     if hw.file_path:
         abs_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", hw.file_path))
@@ -351,7 +351,7 @@ async def submit_homework(
     # Notifier le prof du cours
     course = db.query(Course).filter(Course.id == hw.course_id).first()
     if course and course.teacher_id:
-        create_notification(
+        await send_notification(
             db, course.teacher_id, "submission",
             f"Nouvelle soumission : {hw.title}",
             f"{me.name} a rendu son devoir" + (" (en retard)" if sub.late else ""),
@@ -408,7 +408,7 @@ def download_submission(
 
 # ── Notation ──────────────────────────────────────
 @router.put("/{hw_id}/submissions/{sub_id}/grade")
-def grade_submission(
+async def grade_submission(
     hw_id:  int,
     sub_id: int,
     body:   GradeIn,
@@ -430,7 +430,7 @@ def grade_submission(
     sub.graded   = True
     db.commit()
 
-    create_notification(
+    await send_notification(
         db, sub.student_id, "correction",
         "Votre devoir a été corrigé",
         f"Note : {body.score}/{sub.homework.max_score}",
