@@ -670,8 +670,8 @@ export default function CourseDetail() {
 
           {students.length === 0 ? (
             <div className="empty-state">
-              <h3>{canManage ? 'Aucun étudiant inscrit' : 'Pas d'étudiants'}</h3>
-              <p>{canManage ? 'Cliquez sur "+ Inscrire des étudiants" pour commencer.' : 'Attendez que l'administrateur inscrive des étudiants à ce cours.'}</p>
+              <h3>{canManage ? "Aucun étudiant inscrit" : "Pas d'étudiants"}</h3>
+              <p>{canManage ? `Cliquez sur "+ Inscrire des étudiants" pour commencer.` : `Attendez que l'administrateur inscrive des étudiants à ce cours.`}</p>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
