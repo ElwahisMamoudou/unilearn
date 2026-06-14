@@ -7,7 +7,6 @@ from datetime import datetime
 
 from models import get_db, User, Enrollment, ExamSubmission, Exam, Homework, HomeworkSubmission
 from auth import require_admin, hash_password
-from routes.notifications import create_notification
 
 router = APIRouter(prefix="/api/import-export", tags=["import-export"])
 
