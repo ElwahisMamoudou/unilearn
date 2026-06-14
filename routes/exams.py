@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from models import get_db, User, Course, ClassGroup, Enrollment, Exam, ExamQuestion, ExamSubmission, ExamViolation
 from auth import get_current_user
-from routes.notifications import notify_course_students, create_notification
+from services.notifications import send_notification
 
 router = APIRouter(prefix="/api/exams", tags=["exams"])
 
@@ -317,7 +317,7 @@ def _enrich_exam(exam: Exam) -> dict:
 # ══════════════════════════════════════════════════════
 
 @router.post("", status_code=201)
-def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+async def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
 
@@ -356,7 +356,7 @@ def create_exam(body: ExamIn, db: Session = Depends(get_db), me: User = Depends(
         db.add(eq)
 
     if exam.is_published:
-        notify_course_students(
+        await send_notification(
             db, body.course_id, "exam",
             f"Nouvel examen : {exam.title}",
             f"Durée : {exam.duration_min} min" + (f" — disponible jusqu'au {exam.ends_at.strftime('%d/%m/%Y %H:%M')}" if exam.ends_at else ""),
@@ -373,7 +373,7 @@ def list_exams(course_id: int, db: Session = Depends(get_db), me: User = Depends
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db)  # FIX: était après le raise, jamais exécuté
+    _ensure_course_access(course, me, db)
     exams = db.query(Exam).filter(Exam.course_id == course_id).all()
     result = []
     for e in exams:
@@ -416,7 +416,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db), me: User = Depends(get
 
 
 @router.put("/{exam_id}")
-def update_exam(
+async def update_exam(
     exam_id: int,
     body: ExamIn,
     db: Session = Depends(get_db),
@@ -454,7 +454,7 @@ def update_exam(
         db.add(eq)
 
     if exam.is_published:
-        notify_course_students(
+        await send_notification(
             db, body.course_id, "exam",
             f"Nouvel examen : {exam.title}",
             f"Durée : {exam.duration_min} min" + (f" — disponible jusqu'au {exam.ends_at.strftime('%d/%m/%Y %H:%M')}" if exam.ends_at else ""),
@@ -561,7 +561,7 @@ def submit_exam(exam_id: int, body: AnswerIn, db: Session = Depends(get_db), me:
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
-    _ensure_course_access(_exam_course(exam, db), me, db)  # FIX: indentation excessive supprimée
+    _ensure_course_access(_exam_course(exam, db), me, db)
     if not _is_accessible(exam):
         raise HTTPException(403, "Cet examen n'est pas accessible actuellement")
 
@@ -621,7 +621,7 @@ def my_submission(exam_id: int, db: Session = Depends(get_db), me: User = Depend
 
 
 @router.post("/submissions/{sub_id}/grade")
-def grade_submission(sub_id: int, body: GradeIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+async def grade_submission(sub_id: int, body: GradeIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
     sub = db.query(ExamSubmission).filter(ExamSubmission.id == sub_id).first()
@@ -643,7 +643,7 @@ def grade_submission(sub_id: int, body: GradeIn, db: Session = Depends(get_db), 
     sub.graded    = True
     db.flush()
 
-    create_notification(
+    await send_notification(
         db, sub.student_id, "grade",
         f"Examen corrigé : {exam.title}",
         f"Note : {sub.score:.1f}/{sub.max_score:.0f}",
