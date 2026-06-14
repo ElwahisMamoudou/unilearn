@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
-from routes.notifications import create_notification
+from services.notifications import send_notification
 
 from models import get_db, User, Message
 from auth import get_current_user
@@ -102,7 +102,7 @@ def unread_count(
 # ── Envoyer un message ────────────────────────────
 
 @router.post("", response_model=MessageOut, status_code=201)
-def send_message(
+async def send_message(
     body: MessageIn,
     db:   Session = Depends(get_db),
     me:   User    = Depends(get_current_user),
@@ -123,7 +123,7 @@ def send_message(
     )
     db.add(msg); db.flush()
 
-    create_notification(
+    await send_notification(
         db, body.receiver_id, "message",
         f"Nouveau message de {me.name}",
         body.subject.strip()[:120],
@@ -199,3 +199,4 @@ def get_contacts(
         .all()
     )
     return users
+    
