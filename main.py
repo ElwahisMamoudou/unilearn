@@ -42,42 +42,56 @@ from routes import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def _split_env_list(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
-
-
-def get_cors_origins() -> list[str]:
-    origins = {
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        # URLs Vercel connues — ajoutez la vôtre ici si besoin
-        "https://unilearn-hrrk.vercel.app",
-        "https://unilearn-hrrk-git-main-elwahismamoudous-projects.vercel.app",
-    }
-    origins.update(_split_env_list(os.getenv("FRONTEND_URL")))
-    origins.update(_split_env_list(os.getenv("CORS_ORIGINS")))
-    return sorted(origins)
-
-
-def _csv_env(name: str, default: str = "") -> list[str]:
-    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
-
-
-def _cors_origins() -> list[str]:
-    origins = _csv_env("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
-    frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
-    if frontend_url and frontend_url not in origins:
-        origins.append(frontend_url)
-    return origins
-
-
-CORS_ORIGINS   = _cors_origins()
-ALLOW_ALL_CORS = CORS_ORIGINS == ["*"]
+ 
+def _build_cors_allowlist() -> list[str]:
+    """
+    Construit la liste sécurisée des origines CORS.
+    ✅ Utilise une liste explicite (pas de regex wildcard)
+    """
+    allowed = set()
+    
+    # Environnement
+    env = os.getenv("ENVIRONMENT", "development")
+    
+    # Origines de développement (local seulement)
+    if env == "development":
+        allowed.update({
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        })
+    
+    # Origines de production (EXPLICITES, pas de regex)
+    cors_env = os.getenv("CORS_ORIGINS", "").strip()
+    if cors_env:
+        allowed.update(
+            origin.strip()
+            for origin in cors_env.split(",")
+            if origin.strip()
+        )
+    
+    if not allowed:
+        # Fallback sûr si rien n'est configuré
+        allowed.add("http://localhost:5173")
+    
+    return sorted(allowed)
+ 
+ 
+CORS_ORIGINS = _build_cors_allowlist()
+logger.info(f"CORS origins loaded: {CORS_ORIGINS}")
+ 
+ 
+# Puis dans la configuration middleware:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    # ✅ JAMAIS allow_origin_regex en production!
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
+)
 
 
 def require_role(role: str):
@@ -92,33 +106,74 @@ def require_role(role: str):
 # SEED
 # ─────────────────────────────────────────────
 def seed():
+    """Initialise les données de base (exécuté une seule fois)."""
     db = SessionLocal()
     try:
+        # Vérifier si seed est déjà fait
         if db.query(User).filter_by(email="admin@unilearn.cm").first():
-            logger.info("✅ Admin déjà présent — seed ignoré")
+            logger.info("✅ Seed déjà exécuté — données initiales présentes")
             return
-
+ 
         logger.info("🌱 Création des données initiales...")
-
-        for cat in [
-            Category(name="Sciences",     color="#0EA5E9"),
-            Category(name="Maths",        color="#F59E0B"),
+ 
+        # Créer les catégories
+        categories = [
+            Category(name="Sciences", color="#0EA5E9"),
+            Category(name="Maths", color="#F59E0B"),
             Category(name="Informatique", color="#EF4444"),
-            Category(name="Maintenance",  color="#10B981"),
+            Category(name="Maintenance", color="#10B981"),
             Category(name="Electronique", color="#8B5CF6"),
-        ]:
+        ]
+        
+        for cat in categories:
             if not db.query(Category).filter_by(name=cat.name).first():
                 db.add(cat)
+        
         db.flush()
-
-        db.add(User(
-            name="Administrateur", email="admin@unilearn.cm",
-            hashed_pwd=hash_password("admin1234"), role="admin", is_active=True,
-        ))
-        if not db.query(User).filter_by(email="prof@unilearn.cm").first():
-            db.add(User(
-                name="Prof. Aminou", email="prof@unilearn.cm",
-                hashed_pwd=hash_password("prof1234"), role="teacher", is_active=True,
+ 
+        # Créer les utilisateurs de base
+        users_to_create = [
+            User(
+                name="Administrateur",
+                email="admin@unilearn.cm",
+                hashed_pwd=hash_password("admin1234"),
+                role="admin",
+                is_active=True,
+            ),
+            User(
+                name="Prof. Aminou",
+                email="prof@unilearn.cm",
+                hashed_pwd=hash_password("prof1234"),
+                role="teacher",
+                is_active=True,
+            ),
+            User(
+                name="Ahmadou Bello",
+                email="etudiant@unilearn.cm",
+                hashed_pwd=hash_password("etudiant1234"),
+                role="student",
+                is_active=True,
+            ),
+        ]
+        
+        for user in users_to_create:
+            if not db.query(User).filter_by(email=user.email).first():
+                db.add(user)
+ 
+        db.commit()
+        logger.info("✅ Seed terminé — données initiales créées")
+        
+    except IntegrityError as e:
+        db.rollback()
+        logger.warning(f"⚠️  Intégrité des données: {e}")
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"❌ Erreur base de données: {e}", exc_info=True)
+    except Exception as e:
+        db.rollback()
+        logger.critical(f"❌ Erreur inattendue: {e}", exc_info=True)
+    finally:
+        db.close()
             ))
         if not db.query(User).filter_by(email="etudiant@unilearn.cm").first():
             db.add(User(
@@ -272,17 +327,48 @@ ALLOWED_UPLOAD_EXT = {
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...), me: User = Depends(get_current_user)):
+    """Upload un fichier en streaming (pas de charge mémoire complète)."""
     _, ext = os.path.splitext(os.path.basename(file.filename or "file"))
     ext = ext.lower()
+    
+    # Vérifier l'extension
     if ext not in ALLOWED_UPLOAD_EXT:
         raise HTTPException(400, "Type de fichier non autorisé")
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, "Fichier trop volumineux")
+    
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     safe_name = f"{uuid4().hex}{ext}"
-    with open(os.path.join(UPLOAD_DIR, safe_name), "wb") as f:
-        f.write(content)
+    path = os.path.join(UPLOAD_DIR, safe_name)
+    
+    # Upload en chunks (pas en mémoire)
+    bytes_written = 0
+    chunk_size = 1024 * 1024  # 1 MB chunks
+    
+    try:
+        with open(path, "wb") as f:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_BYTES:
+                    os.remove(path)
+                    raise HTTPException(
+                        413,
+                        f"Fichier > {MAX_UPLOAD_BYTES // 1024 // 1024}MB"
+                    )
+                
+                f.write(chunk)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(path):
+            os.remove(path)
+        logger.error("file_upload_failed", error=str(e))
+        raise HTTPException(500, "Erreur upload")
+    
+    logger.info("file_uploaded", user_id=me.id, filename=safe_name, size=bytes_written)
     return {"url": f"/uploads/{safe_name}"}
 
 
