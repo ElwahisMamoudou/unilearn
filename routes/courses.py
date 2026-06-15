@@ -108,32 +108,50 @@ def _ensure_can_view_course(course: Course, me: User, db: Session) -> None:
 # ── Helper enrichissement ─────────────────────────
 
 def _enrich(course: Course, user_id: int, db: Session) -> dict:
-    lessons    = db.query(Lesson).filter(Lesson.course_id == course.id).all()
-    enrollment = db.query(Enrollment).filter_by(student_id=user_id, course_id=course.id).first()
+    """Enrichit les données d'un cours."""
+    lessons = db.query(Lesson).filter(Lesson.course_id == course.id).all()
+    enrollment = db.query(Enrollment).filter_by(
+        student_id=user_id,
+        course_id=course.id
+    ).first()
+    
+    # Calcul du progrès SÛRE (pas de division par zéro)
+    lesson_count = len(lessons)
     done = 0
-    if enrollment and lessons:
+    
+    if enrollment and lesson_count > 0:  # ✅ Vérifier > 0, pas juste truthy
         done = db.query(Progress).filter(
             Progress.user_id == user_id,
             Progress.lesson_id.in_([l.id for l in lessons]),
             Progress.completed == True,
         ).count()
+    
+    # Calcul du pourcentage (zéro sûr)
+    progress_pct = round(done / lesson_count * 100, 1) if lesson_count > 0 else 0.0
+    
+    # Comptage des étudiants
     student_count = db.query(Enrollment).filter_by(course_id=course.id).count()
+    
     return {
-        "id":            course.id,
-        "title":         course.title,
-        "description":   course.description,
-        "thumbnail":     course.thumbnail,
-        "is_published":  course.is_published,
-        "teacher_id":    course.teacher_id,
-        "teacher_name":  course.teacher.name if course.teacher else "",
-        "category_id":   course.category_id,
-        "category":      course.category,
-        "lesson_count":  len(lessons),
+        "id": course.id,
+        "title": course.title,
+        "description": course.description,
+        "thumbnail": course.thumbnail,
+        "is_published": course.is_published,
+        "teacher_id": course.teacher_id,
+        "teacher_name": course.teacher.name if course.teacher else "",
+        "category_id": course.category_id,
+        "category": course.category,
+        "lesson_count": lesson_count,
         "student_count": student_count,
-        "enrolled":      enrollment is not None,
-        "progress_pct":  round(done / len(lessons) * 100, 1) if lessons else 0.0,
+        "enrolled": enrollment is not None,
+        "progress_pct": progress_pct,  # ✅ Calcul sûr
         "class_group_id": getattr(course, 'class_group_id', None),
-        "class_group_name": course.class_group.name if course.class_group else "",
+        "class_group_name": (
+            course.class_group.name 
+            if course.class_group and hasattr(course.class_group, 'name')
+            else ""
+        ),
     }
 
 
