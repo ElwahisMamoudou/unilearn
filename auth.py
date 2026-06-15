@@ -7,9 +7,22 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-SECRET_KEY = "unilearn-super-secret-key-change-in-production"
-ALGORITHM  = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+import os
+from dotenv import load_dotenv
+ 
+load_dotenv()
+ 
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "❌ ERREUR CRITIQUE: JWT_SECRET_KEY non défini dans .env\n"
+        "   Générez une clé avec: python -c 'import secrets; "
+        "print(secrets.token_urlsafe(32))'\n"
+        "   Ajoutez-la à votre fichier .env"
+    )
+ 
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
