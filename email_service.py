@@ -112,35 +112,68 @@ def _html_template(title: str, body_html: str) -> str:
 
 
 # ── Email : création de compte ────────────────────
+import secrets
+from datetime import datetime, timedelta
+ 
+# Ajouter une table de tokens (à ajouter dans models.py)
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+ 
+ 
 def send_account_created(
-    to_email:  str,
+    to_email: str,
     full_name: str,
-    role:      str,
-    password:  str,
+    role: str,
     login_url: str = "http://localhost:5173/login",
+    db: Session = None,
 ) -> bool:
+    """
+    Envoie un email d'invitation avec lien sécurisé au lieu du mot de passe.
+    """
     role_label = {
         "student": "Étudiant",
         "teacher": "Enseignant",
-        "admin":   "Administrateur",
+        "admin": "Administrateur",
     }.get(role, role)
-
+ 
     role_color = {
         "student": "#16a34a",
         "teacher": "#1d4ed8",
-        "admin":   "#991b1b",
+        "admin": "#991b1b",
     }.get(role, "#1e3a5f")
-
-    subject = f"Bienvenue sur UniLearn — Vos identifiants de connexion"
-
+ 
+    # Générer un token unique et sécurisé
+    setup_token = secrets.token_urlsafe(32)
+    
+    if db:
+        # Créer le token d'activation
+        user = db.query(User).filter_by(email=to_email).first()
+        if user:
+            reset_token = PasswordResetToken(
+                user_id=user.id,
+                token=setup_token,
+                expires_at=datetime.utcnow() + timedelta(hours=24),
+            )
+            db.add(reset_token)
+            db.commit()
+    
+    setup_link = f"{login_url}?setup_token={setup_token}"
+ 
+    subject = f"Bienvenue sur UniLearn — Activez votre compte"
+ 
     body_html = f"""
       <h2 style="margin:0 0 8px;color:#1e3a5f;font-size:20px;">
         Bienvenue, {full_name} !
       </h2>
       <p style="margin:0 0 20px;color:#64748b;font-size:14px;line-height:1.6;">
-        Votre compte a été créé sur la plateforme UniLearn de l'Université de Ngaoundéré.
+        Votre compte a été créé sur la plateforme UniLearn.
       </p>
-
+ 
       <!-- Badge rôle -->
       <div style="margin-bottom:24px;">
         <span style="display:inline-block;background:{role_color};color:#fff;
@@ -149,70 +182,50 @@ def send_account_created(
           {role_label}
         </span>
       </div>
-
-      <!-- Carte identifiants -->
+ 
+      <!-- Infos compte -->
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;
                   padding:20px 24px;margin-bottom:24px;">
-        <p style="margin:0 0 4px;font-size:12px;font-weight:700;
+        <p style="margin:0 0 12px;font-size:12px;font-weight:700;
                   color:#0369a1;text-transform:uppercase;letter-spacing:0.5px;">
-          Vos identifiants de connexion
+          Votre Email
         </p>
-        <table style="width:100%;margin-top:12px;border-collapse:collapse;">
-          <tr>
-            <td style="font-size:13px;color:#64748b;padding:6px 0;width:120px;">
-              Adresse email
-            </td>
-            <td style="font-size:14px;color:#0f172a;font-weight:700;padding:6px 0;">
-              {to_email}
-            </td>
-          </tr>
-          <tr>
-            <td style="font-size:13px;color:#64748b;padding:6px 0;">
-              Mot de passe
-            </td>
-            <td style="font-size:18px;color:#1e3a5f;font-weight:700;
-                       padding:6px 0;letter-spacing:2px;font-family:monospace;">
-              {password}
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <!-- Avertissement sécurité -->
-      <div style="background:#fef9c3;border:1px solid #f59e0b;border-radius:8px;
-                  padding:12px 16px;margin-bottom:24px;">
-        <p style="margin:0;font-size:13px;color:#92400e;line-height:1.5;">
-          ⚠️ Pour votre sécurité, <strong>changez votre mot de passe</strong>
-          dès votre première connexion depuis la page <em>Mon profil</em>.
+        <p style="margin:0;font-size:14px;color:#0f172a;font-weight:700;">
+          {to_email}
         </p>
       </div>
-
-      <!-- Bouton connexion -->
-      <div style="text-align:center;margin-bottom:8px;">
-        <a href="{login_url}"
+ 
+      <!-- Bouton activation -->
+      <div style="text-align:center;margin-bottom:24px;">
+        <a href="{setup_link}"
            style="display:inline-block;background:#1e3a5f;color:#ffffff;
                   text-decoration:none;font-size:15px;font-weight:700;
                   padding:14px 36px;border-radius:8px;letter-spacing:0.3px;">
-          Se connecter à UniLearn →
+          Définir mon mot de passe →
         </a>
       </div>
+ 
+      <!-- Avertissement sécurité -->
+      <div style="background:#fef9c3;border:1px solid #f59e0b;border-radius:8px;
+                  padding:12px 16px;">
+        <p style="margin:0;font-size:13px;color:#92400e;line-height:1.5;">
+          ⏰ Ce lien expire dans 24 heures.<br>
+          🔐 Ne partagez ce lien avec personne d'autre.
+        </p>
+      </div>
     """
-
-    body_text = f"""Bienvenue sur UniLearn, {full_name} !
-
-Votre compte a été créé. Voici vos identifiants :
-
-  Email       : {to_email}
-  Mot de passe: {password}
-  Rôle        : {role_label}
-
-Connectez-vous sur : {login_url}
-
-⚠️ Changez votre mot de passe dès la première connexion (Mon profil → Changer le mot de passe).
-
+ 
+    body_text = f"""Bienvenue sur UniLearn, {full_name}!
+ 
+Votre compte a été créé. Activez-le en cliquant sur ce lien (valide 24h):
+ 
+{setup_link}
+ 
+Puis définissez un mot de passe sécurisé.
+ 
 Ce message a été envoyé automatiquement. Ne pas répondre.
 """
-
+ 
     return _send(to_email, subject, _html_template(subject, body_html), body_text)
 
 
