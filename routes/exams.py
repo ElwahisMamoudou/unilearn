@@ -502,25 +502,53 @@ def set_visibility(exam_id: int, body: VisibilityIn, db: Session = Depends(get_d
     }
     return {"ok": True, "is_published": exam.is_published, "status": status, "message": messages.get(status, "")}
 
-
 @router.patch("/{exam_id}/schedule")
-def schedule_exam(exam_id: int, body: ScheduleIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+def schedule_exam(
+    exam_id: int,
+    body: ScheduleIn,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """Programme un examen avec validation sécurisée des dates."""
     if me.role not in ("admin", "teacher"):
         raise HTTPException(403, "Accès refusé")
+    
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(404, "Examen introuvable")
+    
     _check_exam_owner(exam, me, db)
+    
+    # ✅ VALIDATION COMPLÈTE DES DATES
     if body.starts_at and body.ends_at:
-        s = body.starts_at if body.starts_at.tzinfo else body.starts_at.replace(tzinfo=timezone.utc)
-        e = body.ends_at   if body.ends_at.tzinfo   else body.ends_at.replace(tzinfo=timezone.utc)
+        # Normaliser les timezones
+        s = (body.starts_at 
+             if body.starts_at.tzinfo 
+             else body.starts_at.replace(tzinfo=timezone.utc))
+        e = (body.ends_at 
+             if body.ends_at.tzinfo 
+             else body.ends_at.replace(tzinfo=timezone.utc))
+        
         if s >= e:
-            raise HTTPException(400, "La date d'ouverture doit être antérieure à la fermeture")
+            raise HTTPException(400, "Ouverture doit être avant fermeture")
+    
+    elif body.starts_at and not body.ends_at:
+        raise HTTPException(400, "Si une date de début est définie, une date de fin doit exister")
+    
+    elif not body.starts_at and body.ends_at:
+        raise HTTPException(400, "Si une date de fin est définie, une date de début doit exister")
+    
     exam.starts_at = body.starts_at
-    exam.ends_at   = body.ends_at
+    exam.ends_at = body.ends_at
     db.commit()
     db.refresh(exam)
-    return {"ok": True, "starts_at": exam.starts_at, "ends_at": exam.ends_at, "status": _exam_status(exam)}
+    
+    return {
+        "ok": True,
+        "starts_at": exam.starts_at,
+        "ends_at": exam.ends_at,
+        "status": _exam_status(exam),
+    }
 
 
 # ══════════════════════════════════════════════════════
