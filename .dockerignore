@@ -1,0 +1,19 @@
+# Fichier: .dockerignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.env.local
+.git
+.gitignore
+.DS_Store
+node_modules/
+dist/
+build/
+.pytest_cache/
+.coverage
+*.egg-info/
