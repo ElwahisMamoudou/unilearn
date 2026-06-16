@@ -83,6 +83,11 @@ logger.info(f"CORS origins loaded: {CORS_ORIGINS}")
  
  
 # Puis dans la configuration middleware:
+app = FastAPI(
+    title="UniLearn API",
+    version="5.0.0",
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -163,29 +168,9 @@ def seed():
         db.commit()
         logger.info("✅ Seed terminé — données initiales créées")
         
-    except IntegrityError as e:
-        db.rollback()
-        logger.warning(f"⚠️  Intégrité des données: {e}")
-    except SQLAlchemyError as e:
-        db.rollback()
-        logger.error(f"❌ Erreur base de données: {e}", exc_info=True)
     except Exception as e:
         db.rollback()
         logger.critical(f"❌ Erreur inattendue: {e}", exc_info=True)
-    finally:
-        db.close()
-            ))
-        if not db.query(User).filter_by(email="etudiant@unilearn.cm").first():
-            db.add(User(
-                name="Ahmadou Bello", email="etudiant@unilearn.cm",
-                hashed_pwd=hash_password("etudiant1234"), role="student", is_active=True,
-            ))
-
-        db.commit()
-        logger.info("✅ Seed terminé")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"❌ Erreur seed: {e}")
     finally:
         db.close()
 
@@ -215,21 +200,12 @@ async def lifespan(app: FastAPI):
 
 
 # ─────────────────────────────────────────────
-# APP
+# APP REDÉFINI AVEC LIFESPAN
 # ─────────────────────────────────────────────
 app = FastAPI(
     title="UniLearn API",
     version="5.0.0",
     lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_origins(),
-    allow_origin_regex=r"https://.*\.vercel\.app",   # couvre toutes les previews Vercel
-    allow_credentials=not ALLOW_ALL_CORS,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 # ─────────────────────────────────────────────
