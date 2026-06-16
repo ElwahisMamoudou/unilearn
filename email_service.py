@@ -115,14 +115,8 @@ def _html_template(title: str, body_html: str) -> str:
 import secrets
 from datetime import datetime, timedelta
  
-# Ajouter une table de tokens (à ajouter dans models.py)
-class PasswordResetToken(Base):
-    __tablename__ = "password_reset_tokens"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    token = Column(String(255), unique=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    used = Column(Boolean, default=False)
+from models import Base, User, PasswordResetToken
+from sqlalchemy.orm import Session
  
  
 def send_account_created(

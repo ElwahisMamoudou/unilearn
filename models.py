@@ -197,7 +197,7 @@ class Lesson(Base):
     description = Column(Text,  nullable=True)
     type        = Column(String(10), nullable=False)
     file_path   = Column(String(400), nullable=True)
-    youtube_url = Column(String(500), nullable=True)   # ← URL YouTube (option B)
+    youtube_url = Column(String(500), nullable=True)
     duration    = Column(String(20),  nullable=True)
     order       = Column(Integer, default=0)
     created_at  = Column(DateTime, default=datetime.utcnow)
@@ -464,13 +464,26 @@ class VideoSession(Base):
 
 
 # ══════════════════════════════════════════════════════
-#  MIGRATION À CHAUD (colonnes ajoutées après déploiement initial)
+#  TOKENS DE RÉINITIALISATION MOT DE PASSE
+# ══════════════════════════════════════════════════════
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token      = Column(String(255), unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used       = Column(Boolean, default=False)
+
+
+# ══════════════════════════════════════════════════════
+#  MIGRATION À CHAUD
 # ══════════════════════════════════════════════════════
 
 def _extra_columns(float_type: str, boolean_type: str) -> dict:
     return {
         "lessons": {
-            "youtube_url": "VARCHAR(500)",   # ← option B : URL YouTube
+            "youtube_url": "VARCHAR(500)",
         },
         "courses": {
             "thumbnail":      "VARCHAR(300)",
