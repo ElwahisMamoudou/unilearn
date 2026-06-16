@@ -18,14 +18,13 @@ primary_region = 'cdg'
   min_machines_running = 1
   processes = ['app']
 
-  [http_service.checks]
-    [http_service.checks.status]
-      port = 8000
-      type = "http"
-      interval = 10000
-      timeout = 5000
-      grace_period = "30s"
-      path = "/health"  # Endpoint de santé
+[[http_service.checks]]
+  port = 8000
+  type = "http"
+  interval = 10000
+  timeout = 5000
+  grace_period = "30s"
+  path = "/health"
 
 [[vm]]
   memory = '512mb'
