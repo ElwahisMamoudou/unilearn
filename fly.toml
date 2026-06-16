@@ -11,7 +11,7 @@ primary_region = 'cdg'
   ACCESS_TOKEN_EXPIRE_MINUTES = "15"
 
 [http_service]
-  internal_port = 8000
+  internal_port = 8080 
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
@@ -19,7 +19,7 @@ primary_region = 'cdg'
   processes = ['app']
 
 [[http_service.checks]]
-  port = 8000
+  port = 8080 
   type = "http"
   interval = 10000
   timeout = 5000
