@@ -80,6 +80,19 @@ def _build_cors_allowlist() -> list[str]:
  
 CORS_ORIGINS = _build_cors_allowlist()
 logger.info(f"CORS origins loaded: {CORS_ORIGINS}")
+# ⚠️ Le middleware CORS est attaché plus bas, juste après la création
+# définitive de `app` (celle qui inclut le `lifespan`). Avant, il y avait
+# une deuxième instance FastAPI créée plus loin qui écrasait celle-ci et
+# faisait disparaître ce middleware silencieusement — c'était la cause
+# du blocage CORS entre Vercel et Railway.
+
+
+def require_role(role: str):
+    def checker(user: User = Depends(get_current_user)):
+        if user.role != role:
+            raise HTTPException(status_code=403, detail="Accès interdit")
+        return user
+    return checker
 
 
 # ─────────────────────────────────────────────
@@ -175,7 +188,7 @@ async def lifespan(app: FastAPI):
 
 
 # ─────────────────────────────────────────────
-# APP DÉFINITION (UNE SEULE FOIS) ✅
+# APP REDÉFINI AVEC LIFESPAN
 # ─────────────────────────────────────────────
 app = FastAPI(
     title="UniLearn API",
@@ -183,29 +196,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ─────────────────────────────────────────────
-# MIDDLEWARE CORS (DOIT ÊTRE AJOUTÉ IMMÉDIATEMENT) ✅
-# ─────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    # ✅ JAMAIS allow_origin_regex en production!
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
     max_age=3600,
 )
 
-
-def require_role(role: str):
-    def checker(user: User = Depends(get_current_user)):
-        if user.role != role:
-            raise HTTPException(status_code=403, detail="Accès interdit")
-        return user
-    return checker
-
-
 # ─────────────────────────────────────────────
-# ROUTES API  ← TOUJOURS APRÈS le middleware
+# ROUTES API  ← TOUJOURS AVANT app.mount()
 # ─────────────────────────────────────────────
 from routes.youtube_oauth import router as youtube_oauth_router
 from routes.webrtc import router as webrtc_router
