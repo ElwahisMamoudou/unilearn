@@ -80,31 +80,6 @@ def _build_cors_allowlist() -> list[str]:
  
 CORS_ORIGINS = _build_cors_allowlist()
 logger.info(f"CORS origins loaded: {CORS_ORIGINS}")
- 
- 
-# Puis dans la configuration middleware:
-app = FastAPI(
-    title="UniLearn API",
-    version="5.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    # ✅ JAMAIS allow_origin_regex en production!
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
-    max_age=3600,
-)
-
-
-def require_role(role: str):
-    def checker(user: User = Depends(get_current_user)):
-        if user.role != role:
-            raise HTTPException(status_code=403, detail="Accès interdit")
-        return user
-    return checker
 
 
 # ─────────────────────────────────────────────
@@ -200,7 +175,7 @@ async def lifespan(app: FastAPI):
 
 
 # ─────────────────────────────────────────────
-# APP REDÉFINI AVEC LIFESPAN
+# APP DÉFINITION (UNE SEULE FOIS) ✅
 # ─────────────────────────────────────────────
 app = FastAPI(
     title="UniLearn API",
@@ -209,7 +184,28 @@ app = FastAPI(
 )
 
 # ─────────────────────────────────────────────
-# ROUTES API  ← TOUJOURS AVANT app.mount()
+# MIDDLEWARE CORS (DOIT ÊTRE AJOUTÉ IMMÉDIATEMENT) ✅
+# ─────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
+)
+
+
+def require_role(role: str):
+    def checker(user: User = Depends(get_current_user)):
+        if user.role != role:
+            raise HTTPException(status_code=403, detail="Accès interdit")
+        return user
+    return checker
+
+
+# ─────────────────────────────────────────────
+# ROUTES API  ← TOUJOURS APRÈS le middleware
 # ─────────────────────────────────────────────
 from routes.youtube_oauth import router as youtube_oauth_router
 from routes.webrtc import router as webrtc_router
