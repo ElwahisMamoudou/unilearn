@@ -65,16 +65,9 @@ def login(
     if not success:
         # Délai pour ralentir les brute force
         time.sleep(1)
-        logger.warning(
-            "failed_login",
-            email=form.username if success else "unknown",
-            ip=ip,
-        )
         raise HTTPException(401, "Email ou mot de passe incorrect")
  
     token = create_access_token({"sub": str(user.id)})
-    logger.info("user_login_success", user_id=user.id, email=user.email)
-    
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -83,35 +76,6 @@ def login(
             "name": user.name,
             "email": user.email,
             "role": user.role,
-        },
-    }
-    user = db.query(User).filter_by(email=form.username.lower().strip()).first()
-    success = user and verify_password(form.password, user.hashed_pwd) and user.is_active
-
-    # ── Enregistrer l'historique de connexion ──
-    ip         = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent", "")[:300]
-    if user:
-        db.add(LoginHistory(
-            user_id    = user.id,
-            ip_address = ip,
-            user_agent = user_agent,
-            success    = success,
-        ))
-        db.commit()
-
-    if not success:
-        raise HTTPException(401, "Email ou mot de passe incorrect")
-
-    token = create_access_token({"sub": str(user.id)})
-    return {
-        "access_token": token,
-        "token_type":   "bearer",
-        "user": {
-            "id":    user.id,
-            "name":  user.name,
-            "email": user.email,
-            "role":  user.role,
         },
     }
 
