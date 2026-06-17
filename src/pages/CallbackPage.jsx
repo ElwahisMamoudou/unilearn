@@ -25,7 +25,7 @@ export default function CallbackPage() {
     try {
       const backendUrl = window.location.hostname === 'localhost' 
         ? 'http://localhost:8000'
-        : 'printf-web-production-b7a3.up.railway.app';
+        : 'web-production-0a022.up.railway.app';
 
       const response = await fetch(`${backendUrl}/auth/youtube/callback`, {
         method: 'POST',
