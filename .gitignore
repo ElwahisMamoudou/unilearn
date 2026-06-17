@@ -1,2 +1,10 @@
 node_modules/
+# Ignore local env files that contain secrets or machine-specific config.
+# .env.production is intentionally NOT ignored so Vercel can use it during
+# the build. Set VITE_API_URL in Vercel's dashboard (Settings > Environment
+# Variables) as the canonical source of truth for production deployments.
 .env
+.env.local
+.env.development
+.env.development.local
+.env.production.local
