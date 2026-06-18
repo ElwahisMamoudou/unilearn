@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 FROM python:3.11-slim
 WORKDIR /app
 
-# Installer runtime essentials
+# Installer runtime essentials (curl est requis par le HEALTHCHECK ci-dessous)
 RUN apt-get update && apt-get install -y \
     libpq5 \
     curl \
@@ -42,12 +42,17 @@ RUN mkdir -p uploads/{lessons,homeworks,submissions,recordings,exams}
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-# Port d'écoute (Railway injecte $PORT dynamiquement)
-EXPOSE ${PORT:-8080}
+# Port d'écoute (documentaire seulement — Docker n'expand pas $PORT ici ;
+# Railway injecte $PORT au runtime ; le vrai binding se fait dans CMD ci-dessous)
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
-# Lancer l'app — forme SHELL (pas JSON) pour résoudre $PORT
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Lancer l'app — forme SHELL (sans crochets) pour que $PORT soit résolu
+# au runtime. Railway injecte $PORT dynamiquement ; en forme JSON/exec
+# (avec crochets), $PORT n'est jamais substitué et l'app écoute toujours
+# sur 8080 même si Railway route vers un autre port → 502 "Application
+# failed to respond" sur toutes les requêtes.
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
