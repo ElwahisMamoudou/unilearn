@@ -35,6 +35,14 @@ COPY --from=builder /opt/venv /opt/venv
 # Copier l'application
 COPY . .
 
+# Script de démarrage : résout $PORT lui-même via un shell explicite.
+# On a constaté que CMD avec expansion ${PORT:-8080} arrivait à uvicorn
+# comme texte littéral (Railway invoque probablement le conteneur d'une
+# façon qui ne passe pas par /bin/sh -c). Un script dédié + exec garantit
+# la résolution peu importe comment le conteneur est lancé.
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Créer répertoire uploads
 RUN mkdir -p uploads/{lessons,homeworks,submissions,recordings,exams}
 
@@ -42,17 +50,13 @@ RUN mkdir -p uploads/{lessons,homeworks,submissions,recordings,exams}
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
-# Port d'écoute (documentaire seulement — Docker n'expand pas $PORT ici ;
-# Railway injecte $PORT au runtime ; le vrai binding se fait dans CMD ci-dessous)
+# Port d'écoute (documentaire seulement — Railway injecte $PORT au runtime)
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8080}/health || exit 1
 
-# Lancer l'app — forme SHELL (sans crochets) pour que $PORT soit résolu
-# au runtime. Railway injecte $PORT dynamiquement ; en forme JSON/exec
-# (avec crochets), $PORT n'est jamais substitué et l'app écoute toujours
-# sur 8080 même si Railway route vers un autre port → 502 "Application
-# failed to respond" sur toutes les requêtes.
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
+# Lancer l'app via le script (forme exec, mais le script lui-même fait
+# l'expansion de $PORT en interne avec /bin/sh)
+CMD ["/app/start.sh"]
