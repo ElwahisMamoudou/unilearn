@@ -125,8 +125,4 @@ def send_password_reset(
         "font-size:15px;font-weight:700;padding:14px 36px;border-radius:8px;'>Se connecter</a></div>"
     )
     body_text = f"Bonjour {full_name},\n\nMot de passe temporaire : {new_password}\n\nConnexion : {login_url}\n\nMessage automatique."
-<<<<<<< Updated upstream
     return _send(to_email, subject, _html_template(subject, body_html), body_text)
-=======
-    return _send(to_email, subject, _html_template(subject, body_html), body_text)
->>>>>>> Stashed changes
