@@ -30,7 +30,7 @@ export default function ProfilePage() {
     user?.role === 'teacher' ? 'Enseignant'      : 'Étudiant'
   const roleBg =
     user?.role === 'admin'   ? { background: '#fee2e2', color: '#991b1b' } :
-    user?.role === 'teacher' ? { background: '#dbeafe', color: '#1e40af' } :
+    user?.role === 'teacher' ? { background: '#dbeafe', color: '#0a5399' } :
                                { background: '#d1fae5', color: '#065f46' }
 
   const saveInfo = async () => {
@@ -98,7 +98,7 @@ export default function ProfilePage() {
             fontSize: 26, fontWeight: 700, letterSpacing: 1,
           }}>{initials}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 20, color: 'var(--navy)', fontWeight: 700, marginBottom: 4 }}>
+            <div style={{ fontFamily: 'var(--font)', fontSize: 20, color: 'var(--navy)', fontWeight: 700, marginBottom: 4 }}>
               {user?.name}
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>{user?.email}</div>

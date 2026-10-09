@@ -407,9 +407,9 @@ export default function AdminDashboard() {
       {/* ── VUE CLASSES ── */}
       {view === 'classes' && (
         <>
-          <div style={{ background: 'linear-gradient(135deg,var(--navy),#1a3a6e)', borderRadius: 16, padding: '28px 32px', marginBottom: 28, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+          <div style={{ background: 'var(--blue)', borderRadius: 16, padding: '28px 32px', marginBottom: 28, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <h2 style={{ fontFamily: 'Playfair Display,serif', fontSize: 22, margin: 0 }}>Administration UniLearn</h2>
+              <h2 style={{ fontFamily: 'var(--font)', fontSize: 22, margin: 0 }}>Administration UniLearn</h2>
               <p style={{ opacity: .6, fontSize: 13, marginTop: 6 }}>Gerez vos classes, enseignants, etudiants et cours depuis ce panneau.</p>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -699,7 +699,7 @@ export default function AdminDashboard() {
 
             {/* En-tête coloré */}
             <div style={{
-              background: 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 100%)',
+              background: 'linear-gradient(135deg, #1d2125 0%, #0a5399 100%)',
               borderRadius: '24px 24px 0 0',
               padding: '28px 32px 24px',
               color: '#fff',
@@ -714,7 +714,7 @@ export default function AdminDashboard() {
                     {editUser ? '✏️' : '👤'}
                   </div>
                   <div>
-                    <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 20, fontWeight: 800 }}>
+                    <div style={{ fontFamily: 'var(--font)', fontSize: 20, fontWeight: 800 }}>
                       {editUser ? 'Modifier l\'utilisateur' : 'Nouvel utilisateur'}
                     </div>
                     <div style={{ fontSize: 12, opacity: .6, marginTop: 2 }}>
@@ -893,7 +893,7 @@ export default function AdminDashboard() {
                       {userForm.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '??'}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: '#0f1f3d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#1d2125', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {userForm.name || 'Nom non saisi'}
                       </div>
                       <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

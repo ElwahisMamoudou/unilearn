@@ -210,7 +210,7 @@ export default function LessonViewer() {
         {/* ── Sidebar ── */}
         <div className="viewer-sidebar">
           <div style={{ padding: '16px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 15, color: 'var(--navy)', fontWeight: 600 }}>
+            <div style={{ fontFamily: 'var(--font)', fontSize: 15, color: 'var(--navy)', fontWeight: 600 }}>
               Plan du cours
             </div>
             {lesson.course_title && (

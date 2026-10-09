@@ -59,7 +59,7 @@ function AnswerProgress({ questions, answers }) {
 function StatusBadge({ status, isPublished }) {
   const cfg = {
     draft:     { bg: '#fef9c3', color: '#854d0e', label: 'Brouillon' },
-    scheduled: { bg: '#eff6ff', color: '#1d4ed8', label: 'Programmé' },
+    scheduled: { bg: '#eff6ff', color: '#0a5399', label: 'Programmé' },
     open:      { bg: '#d1fae5', color: '#065f46', label: 'Ouvert' },
     closed:    { bg: '#fee2e2', color: '#991b1b', label: 'Fermé' },
   }
@@ -594,7 +594,7 @@ export default function ExamPage() {
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap', rowGap: 8 }}>
           <button className="btn btn-outline btn-sm" onClick={() => { if (confirm('Quitter ? Vos réponses ne seront pas sauvegardées.')) setTaking(null) }}>← Retour</button>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', color: 'var(--navy)', fontSize: 18, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taking.title}</h2>
+          <h2 style={{ fontFamily: 'var(--font)', color: 'var(--navy)', fontSize: 18, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{taking.title}</h2>
           {violations > 0 && (
             <span style={{ fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 700, background: violations >= MAX_VIOLATIONS - 1 ? '#fee2e2' : '#fef9c3', color: violations >= MAX_VIOLATIONS - 1 ? '#991b1b' : '#92400e' }}>⚠ {violations}/{MAX_VIOLATIONS}</span>
           )}
@@ -658,7 +658,7 @@ export default function ExamPage() {
       <div style={{ maxWidth: 620, margin: '40px auto', padding: '0 8px' }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontSize: 64, marginBottom: 12 }}>{submitted.forced ? '🚨' : success ? '🎉' : '📝'}</div>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', color: 'var(--navy)', marginBottom: 8 }}>
+          <h2 style={{ fontFamily: 'var(--font)', color: 'var(--navy)', marginBottom: 8 }}>
             {submitted.forced ? 'Copie soumise automatiquement' : 'Examen soumis !'}
           </h2>
           {submitted.forced && (
@@ -720,7 +720,7 @@ export default function ExamPage() {
       <div style={{ maxWidth: 740, margin: '0 auto', padding: '0 4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap', rowGap: 8 }}>
           <button className="btn btn-outline btn-sm" onClick={() => setGradingId(null)}>← Retour résultats</button>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', color: 'var(--navy)', fontSize: 18, flex: 1 }}>Correction — {gradingId.student_name}</h2>
+          <h2 style={{ fontFamily: 'var(--font)', color: 'var(--navy)', fontSize: 18, flex: 1 }}>Correction — {gradingId.student_name}</h2>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{new Date(gradingId.submitted_at).toLocaleString()}</span>
         </div>
         {openQs.length === 0 ? (
@@ -737,7 +737,7 @@ export default function ExamPage() {
               </span>
               <div style={{ background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: 'var(--navy)', whiteSpace: 'pre-wrap', lineHeight: 1.6, minHeight: 48 }}>
                 {data.type === 'upload'
-                  ? <a href={data.student_answer} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>📎 Voir le fichier soumis</a>
+                  ? <a href={data.student_answer} target="_blank" rel="noopener noreferrer" style={{ color: '#0f6cbf' }}>📎 Voir le fichier soumis</a>
                   : data.student_answer || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Aucune réponse</span>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 12, alignItems: 'start' }}>
@@ -778,9 +778,9 @@ export default function ExamPage() {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap', rowGap: 8 }}>
           <button className="btn btn-outline btn-sm" onClick={() => setViewSubs(null)}>← Retour</button>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', color: 'var(--navy)', fontSize: 18, flex: 1 }}>{viewSubs.title}</h2>
+          <h2 style={{ fontFamily: 'var(--font)', color: 'var(--navy)', fontSize: 18, flex: 1 }}>{viewSubs.title}</h2>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 20, background: '#eff6ff', color: '#1d4ed8', fontWeight: 600 }}>{subs.length} soumission(s)</span>
+            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 20, background: '#eff6ff', color: '#0a5399', fontWeight: 600 }}>{subs.length} soumission(s)</span>
             {avgScore !== null && <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 20, background: '#f0fdf4', color: '#166534', fontWeight: 600 }}>Moy. {avgScore}%</span>}
             {passing && <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 20, background: '#fef9c3', color: '#854d0e', fontWeight: 600 }}>Seuil : {passing}%</span>}
           </div>

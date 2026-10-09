@@ -226,7 +226,7 @@ export default function TeacherDashboard() {
 
       {/* ── En-tête ── */}
       <div style={{
-        background: 'linear-gradient(135deg, var(--navy), #1a3a6e)',
+        background: 'var(--blue)',
         borderRadius: 16, padding: '24px 28px', marginBottom: 24,
         color: '#fff', display: 'flex', alignItems: 'center', gap: 18,
         flexWrap: 'wrap',
@@ -235,7 +235,7 @@ export default function TeacherDashboard() {
           <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.5)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>
             Espace Enseignant
           </div>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 22, margin: 0 }}>
+          <h2 style={{ fontFamily: 'var(--font)', fontSize: 22, margin: 0 }}>
             Bonjour, {user?.name?.split(' ')[0]} 👋
           </h2>
           <div style={{ opacity: .6, fontSize: 12, marginTop: 4 }}>

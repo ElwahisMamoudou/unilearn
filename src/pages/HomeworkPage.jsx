@@ -145,7 +145,7 @@ export default function HomeworkPage() {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <button className="btn btn-outline btn-sm" onClick={() => setViewSubs(null)}>← Retour</button>
-          <h2 style={{ fontFamily: 'Playfair Display, serif', color: 'var(--navy)', fontSize: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font)', color: 'var(--navy)', fontSize: 20 }}>
             Soumissions — {viewSubs.title}
           </h2>
           <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}

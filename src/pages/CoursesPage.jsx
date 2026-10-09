@@ -39,7 +39,7 @@ function PdfViewer({ url, title, onClose }) {
     }} onClick={onClose}>
       <div style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
-        padding:'12px 20px',background:'#0f1f3d',flexShrink:0,
+        padding:'12px 20px',background:'#1d2125',flexShrink:0,
       }} onClick={e=>e.stopPropagation()}>
         <span style={{color:'#fff',fontWeight:700,fontSize:15}}>📄 {title}</span>
         <div style={{display:'flex',gap:10}}>
@@ -114,10 +114,9 @@ export default function CoursesPage({ myOnly }) {
   })
 
   return (
-    <div style={{ fontFamily:"'Sora','DM Sans',sans-serif" }}>
+    <div style={{ fontFamily:'var(--font)' }}>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap');
 
         .course-card-xl {
           background:#fff; border-radius:22px; overflow:hidden;
@@ -144,7 +143,7 @@ export default function CoursesPage({ myOnly }) {
         .filter-pill {
           padding:7px 18px; border-radius:22px; font-size:12px; font-weight:700;
           cursor:pointer; border:1.5px solid; transition:all .15s ease;
-          white-space:nowrap; font-family:'Sora',sans-serif;
+          white-space:nowrap; font-family:var(--font);
         }
         .filter-pill:hover { transform:scale(1.05); }
         .progress-bar-fill {
@@ -186,7 +185,7 @@ export default function CoursesPage({ myOnly }) {
 
       {/* ── Hero ── */}
       <div style={{
-        background:'linear-gradient(135deg,#0f1f3d 0%,#1a3a6e 50%,#0f2d4a 100%)',
+        background:'linear-gradient(135deg,#1d2125 0%,#0a5399 50%,#0f2d4a 100%)',
         borderRadius:22,padding:'32px 36px',marginBottom:32,color:'#fff',
         position:'relative',overflow:'hidden',
         boxShadow:'0 20px 40px rgba(15,31,61,.22)',
@@ -427,7 +426,7 @@ function CourseCardXL({ course:c, idx, isStudent, isTeacher, isAdmin, enrolling,
         {!thumb && (
           <h3 style={{
             fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:800,
-            color:'#0f1f3d',margin:'0 0 8px',lineHeight:1.35,
+            color:'#1d2125',margin:'0 0 8px',lineHeight:1.35,
             display:'-webkit-box',WebkitLineClamp:2,
             WebkitBoxOrient:'vertical',overflow:'hidden',
           }}>{c.title}</h3>
@@ -534,7 +533,7 @@ function CourseListRow({ course:c, idx, isStudent, isTeacher, isAdmin, enrolling
         {!thumb && icon}
       </div>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:15,color:'#0f1f3d',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:15,color:'#1d2125',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
           {c.title}
         </div>
         <div style={{fontSize:12,color:'#64748b',marginTop:4,fontWeight:500}}>

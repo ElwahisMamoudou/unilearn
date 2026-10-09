@@ -611,7 +611,7 @@ export default function VideoRoom() {
         <CtrlBtn onClick={toggleCam} icon={camOn ? '📹' : '📷'} label={camOn?'Couper caméra':'Activer caméra'} color={camOn?'#1f2937':'#ef4444'} />
 
         {/* Partage d'écran */}
-        <CtrlBtn onClick={toggleScreen} icon='🖥' label={screenSharing?'Arrêter partage':'Partager écran'} color={screenSharing?'#2563eb':'#1f2937'} active={screenSharing} />
+        <CtrlBtn onClick={toggleScreen} icon='🖥' label={screenSharing?'Arrêter partage':'Partager écran'} color={screenSharing?'#0f6cbf':'#1f2937'} active={screenSharing} />
 
         {/* Lever la main */}
         <CtrlBtn onClick={toggleHand} icon='✋' label={handRaised?'Baisser la main':'Lever la main'} color={handRaised?'#d97706':'#1f2937'} pulse={handRaised} />
@@ -700,7 +700,7 @@ function VideoTile({ label, isSelf, videoRef, stream, micOn, camOn, isTeacher, h
       {/* Bandeau bas */}
       <div style={{ position:'absolute',bottom:0,left:0,right:0,padding:'18px 10px 8px',background:'linear-gradient(transparent,rgba(0,0,0,.72))',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
         <div style={{ fontSize:12,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'75%',display:'flex',alignItems:'center',gap:5 }}>
-          {isSharing && <span style={{ fontSize:10,background:'#2563eb',borderRadius:4,padding:'1px 5px' }}>🖥 Écran</span>}
+          {isSharing && <span style={{ fontSize:10,background:'#0f6cbf',borderRadius:4,padding:'1px 5px' }}>🖥 Écran</span>}
           {label}
           {isTeacher && <span style={{ fontSize:10,background:'#25d366',borderRadius:4,padding:'1px 5px',marginLeft:3 }}>Prof</span>}
         </div>

@@ -165,7 +165,7 @@ export default function ForumPage() {
             {/* Question principale */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <h3 style={{ fontFamily: 'Playfair Display, serif', fontSize: 18, color: 'var(--navy)', flex: 1 }}>
+                <h3 style={{ fontFamily: 'var(--font)', fontSize: 18, color: 'var(--navy)', flex: 1 }}>
                   {selected.title}
                 </h3>
                 {canDelete(selected.author_id) && (

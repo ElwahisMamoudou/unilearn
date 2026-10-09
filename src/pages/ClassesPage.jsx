@@ -224,7 +224,7 @@ export default function ClassesPage() {
       </div>
 
       {isStudent && classes.length > 0 && (
-        <div style={{ background: 'linear-gradient(135deg, var(--navy), #1a3a6e)', borderRadius: 12, padding: '16px 20px', marginBottom: 20, color: 'white' }}>
+        <div style={{ background: 'var(--blue)', borderRadius: 12, padding: '16px 20px', marginBottom: 20, color: 'white' }}>
           <div style={{ fontSize: 13, opacity: .7, marginBottom: 4 }}>Vous êtes inscrit dans</div>
           <div style={{ fontSize: 24, fontWeight: 800 }}>{classes.length} classe{classes.length > 1 ? 's' : ''}</div>
           <div style={{ fontSize: 12, opacity: .6, marginTop: 2 }}>Cliquez sur une classe pour accéder à vos cours</div>

@@ -464,7 +464,7 @@ export default function CourseDetail() {
         position: 'relative', minHeight: 200,
         background: thumb
           ? `url(${thumb}) center/cover no-repeat`
-          : 'linear-gradient(135deg, #0f1f3d 0%, #1a3a6e 60%, #0f2d4a 100%)',
+          : 'linear-gradient(135deg, #1d2125 0%, #0a5399 60%, #0f2d4a 100%)',
         boxShadow: '0 12px 32px rgba(15,31,61,.2)',
       }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,.8) 0%, rgba(0,0,0,.3) 60%, rgba(0,0,0,.1) 100%)' }} />
@@ -487,7 +487,7 @@ export default function CourseDetail() {
                 {course.category.name}
               </div>
             )}
-            <h1 style={{ fontFamily: 'Playfair Display, serif', fontSize: 26, fontWeight: 800, color: '#fff', margin: '0 0 10px', textShadow: '0 2px 8px rgba(0,0,0,.4)' }}>
+            <h1 style={{ fontFamily: 'var(--font)', fontSize: 26, fontWeight: 800, color: '#fff', margin: '0 0 10px', textShadow: '0 2px 8px rgba(0,0,0,.4)' }}>
               {course.title}
             </h1>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -594,7 +594,7 @@ export default function CourseDetail() {
                     <div style={{
                       width: 36, height: 36, borderRadius: 10, flexShrink: 0,
                       background: l.type === 'pdf' ? '#dbeafe' : isYT ? '#fee2e2' : '#dcfce7',
-                      color:      l.type === 'pdf' ? '#1d4ed8' : isYT ? '#dc2626' : '#16a34a',
+                      color:      l.type === 'pdf' ? '#0a5399' : isYT ? '#dc2626' : '#16a34a',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
                     }}>
                       {l.type === 'pdf' ? '📄' : isYT ? '▶️' : '🎬'}

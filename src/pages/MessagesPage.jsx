@@ -125,7 +125,7 @@ export default function MessagesPage() {
           <>
             <div className="card-header">
               <div>
-                <div style={{ fontFamily: 'Playfair Display, serif', fontSize: 17, color: 'var(--navy)' }}>{selected.subject}</div>
+                <div style={{ fontFamily: 'var(--font)', fontSize: 17, color: 'var(--navy)' }}>{selected.subject}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>
                   De : <strong>{selected.sender_name}</strong> — A : <strong>{selected.receiver_name}</strong>
                   {' · '}{new Date(selected.created_at).toLocaleString('fr-FR')}

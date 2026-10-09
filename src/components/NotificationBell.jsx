@@ -129,7 +129,7 @@ export default function NotificationBell() {
             </span>
             {unread > 0 && (
               <button onClick={markAllRead}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#2563eb' }}>
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#0f6cbf' }}>
                 Tout marquer lu
               </button>
             )}

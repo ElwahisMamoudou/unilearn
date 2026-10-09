@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import useAuthStore from './store/authStore'
-import Sidebar from './components/Sidebar'
+import Sidebar, { navItemsFor } from './components/Sidebar'
+import Logo from './components/Logo'
 import NotificationBell from './components/NotificationBell'
 import Dashboard from './pages/Dashboard'
 import CoursesPage from './pages/CoursesPage'
@@ -26,50 +27,99 @@ function ProtectedRoute({ children }) {
   return token ? children : <Navigate to="/login" replace />
 }
 
+const PAGE_TITLES = {
+  '/home':       'Tableau de bord',
+  '/courses':    'Catalogue des cours',
+  '/my-courses': 'Mes cours',
+  '/teacher':    'Espace enseignant',
+  '/messages':   'Messagerie',
+  '/admin':      'Classes & Promotions',
+  '/exams':      'Evaluations',
+  '/homeworks':  'Devoirs',
+  '/classes':    'Classes & Promotions',
+  '/profile':    'Mon profil',
+}
+
+function pageTitle(pathname) {
+  if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname]
+  if (pathname.startsWith('/courses/')) return 'Cours'
+  if (pathname.startsWith('/classes/')) return 'Classe'
+  if (pathname.startsWith('/forum/'))   return 'Forum'
+  return 'UniLearn'
+}
+
+const ROLE_LABELS = { admin: 'Administrateur', teacher: 'Enseignant', student: 'Etudiant' }
+
 function AppLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { user } = useAuthStore()
+  const [drawerOpen, setDrawerOpen] = useState(() => window.innerWidth >= 992)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
+  const { user, logout } = useAuthStore()
   const location = useLocation()
+  const navigate = useNavigate()
   const canViewClasses = ['admin', 'teacher', 'student'].includes(user?.role)
 
-  const isViewer = location.pathname.startsWith('/lesson/')
+  // ferme le menu utilisateur quand on clique ailleurs
+  useEffect(() => {
+    const close = e => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [])
 
+  const isViewer = location.pathname.startsWith('/lesson/')
   if (isViewer) return <Routes><Route path="/lesson/:id" element={<LessonViewer />} /></Routes>
 
-  const pageTitles = {
-    '/home':       'Tableau de bord',
-    '/courses':    'Catalogue des cours',
-    '/my-courses': 'Mes cours',
-    '/teacher':    'Espace enseignant',
-    '/messages':   'Messagerie',
-    '/admin':      'Classes & Promotions',
-    '/exams':      'Evaluations',
-    '/homeworks':  'Devoirs',
-    '/classes':    'Classes & Promotions',
-    '/profile':    'Mon profil',
-  }
-  const title = pageTitles[location.pathname] || 'UniLearn'
+  const title = pageTitle(location.pathname)
+  const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U'
+  const doLogout = () => { logout(); navigate('/') }
+  const closeDrawerOnMobile = () => { if (window.innerWidth < 992) setDrawerOpen(false) }
 
   return (
-    <div className="app-shell">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="main">
-        <header className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <button
-              onClick={() => setSidebarOpen(v => !v)}
-              style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--navy)', padding: 4 }}
-              className="hamburger"
-            >
-              &#9776;
+    <div className={`app-shell${drawerOpen ? ' drawer-open' : ''}`}>
+      <header className="navbar-moodle">
+        <button className="nav-toggle" onClick={() => setDrawerOpen(v => !v)} aria-label="Ouvrir ou fermer le menu">&#9776;</button>
+        <Link to="/home" className="brand">
+          <Logo />
+          <span>UniLearn</span>
+        </Link>
+        <nav className="nav-primary" aria-label="Navigation principale">
+          {navItemsFor(user?.role).filter(i => i.to !== '/messages').map(i => (
+            <NavLink key={i.to} to={i.to} end className={({ isActive }) => (isActive ? 'active' : '')}>{i.text}</NavLink>
+          ))}
+        </nav>
+        <div className="nav-right">
+          <NotificationBell />
+          <div className="user-menu" ref={menuRef}>
+            <button className="user-trigger" onClick={() => setMenuOpen(v => !v)} aria-haspopup="menu" aria-expanded={menuOpen}>
+              <span className="user-avatar">{initials}</span>
+              <span className="user-name">{user?.name?.split(' ')[0]}</span>
+              <span aria-hidden="true">&#9662;</span>
             </button>
-            <span className="topbar-title">{title}</span>
+            {menuOpen && (
+              <div className="dropdown" role="menu">
+                <div className="dropdown-head">
+                  <p>{user?.name}</p>
+                  <span>{ROLE_LABELS[user?.role] || ''}</span>
+                </div>
+                <Link to="/profile" onClick={() => setMenuOpen(false)}>Profil</Link>
+                <Link to="/messages" onClick={() => setMenuOpen(false)}>Messages</Link>
+                <button onClick={doLogout}>Déconnexion</button>
+              </div>
+            )}
           </div>
-          <div className="topbar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <NotificationBell />
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{user?.name?.split(' ')[0]}</span>
-          </div>
-        </header>
+        </div>
+      </header>
+
+      <Sidebar onClose={() => setDrawerOpen(false)} onNavigate={closeDrawerOnMobile} />
+
+      <div className="main">
+        <div className="page-header">
+          <nav className="breadcrumb" aria-label="Fil d'Ariane">
+            {location.pathname !== '/home' && <Link to="/home">Accueil</Link>}
+            <span>{title}</span>
+          </nav>
+          <h1 className="page-title">{title}</h1>
+        </div>
         <main className="content">
           <Routes>
             <Route path="/home"            element={<Dashboard />} />
@@ -105,6 +155,12 @@ function AppLayout() {
             <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
         </main>
+        <footer className="site-footer">
+          <span>
+            Vous êtes connecté sous le nom « {user?.name} » (<button onClick={doLogout}>Déconnexion</button>)
+          </span>
+          <span>UniLearn — Université de Ngaoundéré</span>
+        </footer>
       </div>
     </div>
   )

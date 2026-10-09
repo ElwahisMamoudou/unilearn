@@ -516,13 +516,13 @@ export default function ClassDetail() {
       )}
 
       {/* ── En-tête ── */}
-      <div style={{ background: 'linear-gradient(135deg, var(--navy), #1a3a6e)', borderRadius: 16, padding: '24px 28px', marginBottom: 24, color: '#fff', display: 'flex', alignItems: 'center', gap: 18 }}>
+      <div style={{ background: 'var(--blue)', borderRadius: 16, padding: '24px 28px', marginBottom: 24, color: '#fff', display: 'flex', alignItems: 'center', gap: 18 }}>
         <button onClick={() => navigate('/classes')} style={{ background: 'rgba(255,255,255,.15)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
           Classes
         </button>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h2 style={{ fontFamily: 'Playfair Display, serif', fontSize: 20, margin: 0 }}>{cls.name}</h2>
+            <h2 style={{ fontFamily: 'var(--font)', fontSize: 20, margin: 0 }}>{cls.name}</h2>
             {cls.code && <span style={{ fontSize: 11, background: 'rgba(255,255,255,.2)', padding: '2px 8px', borderRadius: 20 }}>{cls.code}</span>}
           </div>
           <div style={{ opacity: .65, fontSize: 12, marginTop: 4, display: 'flex', gap: 16 }}>
@@ -770,7 +770,7 @@ export default function ClassDetail() {
                           <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>Aucune leçon.</div>
                         ) : lessons.map((l, i) => (
                           <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < lessons.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                            <div style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7', color: l.type === 'pdf' ? '#1d4ed8' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
+                            <div style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, background: l.type === 'pdf' ? '#dbeafe' : '#dcfce7', color: l.type === 'pdf' ? '#0a5399' : '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
                               {l.type === 'pdf' ? '📄' : '🎬'}
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
