@@ -2,7 +2,6 @@ import io, csv, secrets, string
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List
 from datetime import datetime
 
 from models import get_db, User, Enrollment, ExamSubmission, Exam, Homework, HomeworkSubmission
@@ -306,7 +305,7 @@ def get_login_history(
     """Export historique des connexions en Excel."""
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill
+        from openpyxl.styles import Font
     except ImportError:
         raise HTTPException(500, "openpyxl non installé")
 

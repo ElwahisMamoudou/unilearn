@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
 
-from models import get_db, User, Course, ClassGroup, Enrollment, Homework, HomeworkSubmission
+from models import get_db, User, Course, Enrollment, Homework, HomeworkSubmission
 from auth import get_current_user, require_teacher
 from services.notifications import send_notification
+from permissions import ensure_course_access
 
 router = APIRouter(prefix="/api/homeworks", tags=["homeworks"])
 
@@ -19,39 +20,11 @@ ALLOWED_EXT = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".zip", ".txt",
                ".xls", ".xlsx", ".ppt", ".pptx", ".rar", ".7z", ".gif", ".webp", ".csv"}
 MAX_SIZE_MB = 50
 
-def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
-    if course.teacher_id == teacher_id:
-        return True
-    if not course.class_group_id:
-        return False
-    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
-    if class_group and class_group.teacher_id == teacher_id:
-        return True
-    return db.query(Course.id).filter(
-        Course.class_group_id == course.class_group_id,
-        Course.teacher_id == teacher_id,
-    ).first() is not None
-
-
-def _ensure_course_access(course: Course, me: User, db: Session, manage: bool = False) -> None:
-    if me.role == "admin":
-        return
-    if me.role == "teacher":
-        if _teacher_can_manage_course(course, me.id, db):
-            return
-        raise HTTPException(403, "Ce cours ne vous est pas assigné")
-    if manage:
-        raise HTTPException(403, "Accès réservé aux enseignants")
-    enrolled = db.query(Enrollment.id).filter_by(student_id=me.id, course_id=course.id).first()
-    if not enrolled:
-        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
-
-
 def _ensure_homework_access(hw: Homework, me: User, db: Session, manage: bool = False) -> Course:
     course = db.query(Course).filter(Course.id == hw.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db, manage=manage)
+    ensure_course_access(course, me, db, manage=manage)
     return course
 
 
@@ -119,7 +92,7 @@ async def create_homework(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db, manage=True)
+    ensure_course_access(course, me, db, manage=True)
 
     try:
         due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))
@@ -198,7 +171,7 @@ def list_homeworks(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    _ensure_course_access(course, me, db)
+    ensure_course_access(course, me, db)
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
     result = []
@@ -255,7 +228,7 @@ async def update_homework(
     new_course = db.query(Course).filter(Course.id == course_id).first()
     if not new_course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(new_course, me, db, manage=True)
+    ensure_course_access(new_course, me, db, manage=True)
 
     try:
         due_dt = datetime.fromisoformat(due_date.replace("Z", "+00:00"))

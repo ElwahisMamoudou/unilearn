@@ -14,7 +14,7 @@ from typing import Optional
 from models import get_db, User, LoginHistory
 from auth import (
     verify_password, create_access_token,
-    get_current_user, hash_password
+    get_current_user
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])

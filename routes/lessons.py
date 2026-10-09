@@ -5,9 +5,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from models import Lesson, Course, ClassGroup, Enrollment, Progress, User, get_db
+from models import Lesson, Course, Progress, User, get_db
 from auth import get_current_user, require_teacher, verify_token
 from services.notifications import send_notification
+from permissions import can_view_course, teacher_can_view_course
 
 router = APIRouter(prefix="/api/lessons", tags=["lessons"])
 
@@ -55,40 +56,11 @@ def _extract_youtube_id(url: str) -> str | None:
     return None
 
 
-def _teacher_can_view_course(course: Course, teacher_id: int, db: Session) -> bool:
-    if course.teacher_id == teacher_id:
-        return True
-    if not course.class_group_id:
-        return False
-
-    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
-    if not class_group:
-        return False
-    if class_group.teacher_id == teacher_id:
-        return True
-
-    return db.query(Course.id).filter(
-        Course.class_group_id == course.class_group_id,
-        Course.teacher_id == teacher_id,
-    ).first() is not None
-
-
-def _can_view_course(course: Course, me: User, db: Session) -> bool:
-    if me.role == "admin":
-        return True
-    if me.role == "teacher":
-        return _teacher_can_view_course(course, me.id, db)
-    return db.query(Enrollment.id).filter_by(
-        student_id=me.id,
-        course_id=course.id,
-    ).first() is not None
-
-
 def _ensure_can_view_lesson(lesson: Lesson, me: User, db: Session) -> Course:
     course = db.query(Course).filter(Course.id == lesson.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if not _can_view_course(course, me, db):
+    if not can_view_course(course, me, db):
         raise HTTPException(403, "Vous n'avez pas accès à cette leçon")
     return course
 
@@ -136,7 +108,7 @@ async def upload_lesson(
     if not course:
         raise HTTPException(404, "Cours introuvable")
 
-    if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
+    if me.role == "teacher" and not teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné — vous ne pouvez pas y ajouter de leçons")
 
     has_file = file is not None and file.filename
@@ -208,7 +180,7 @@ def delete_lesson(
     course = db.query(Course).filter(Course.id == lesson.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    if me.role == "teacher" and not _teacher_can_view_course(course, me.id, db):
+    if me.role == "teacher" and not teacher_can_view_course(course, me.id, db):
         raise HTTPException(403, "Ce cours ne vous est pas assigné")
 
     # Supprimer le fichier physique si présent (pas de fichier pour les leçons YouTube)

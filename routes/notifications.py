@@ -6,7 +6,7 @@ from datetime import datetime
 
 from models import get_db, User, Notification, Enrollment, Exam
 from auth import get_current_user
-from services.notifications import add_connection, remove_connection, broadcast_to_user
+from services.notifications import add_connection, remove_connection
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional, List
 
-from models import Course, Category, ClassGroup, Enrollment, Lesson, Progress, User, get_db
+from models import Course, ClassGroup, Enrollment, Lesson, Progress, User, get_db
 from auth import get_current_user
+from permissions import can_view_course
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -69,37 +70,8 @@ class CourseOut(BaseModel):
 
 # ── Helper accès cours ────────────────────────────
 
-def _teacher_can_view_course(course: Course, teacher_id: int, db: Session) -> bool:
-    if course.teacher_id == teacher_id:
-        return True
-    if not course.class_group_id:
-        return False
-
-    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
-    if not class_group:
-        return False
-    if class_group.teacher_id == teacher_id:
-        return True
-
-    return db.query(Course.id).filter(
-        Course.class_group_id == course.class_group_id,
-        Course.teacher_id == teacher_id,
-    ).first() is not None
-
-
-def _can_view_course(course: Course, me: User, db: Session) -> bool:
-    if me.role == "admin":
-        return True
-    if me.role == "teacher":
-        return _teacher_can_view_course(course, me.id, db)
-    return db.query(Enrollment.id).filter_by(
-        student_id=me.id,
-        course_id=course.id,
-    ).first() is not None
-
-
 def _ensure_can_view_course(course: Course, me: User, db: Session) -> None:
-    if not _can_view_course(course, me, db):
+    if not can_view_course(course, me, db):
         if me.role == "teacher":
             raise HTTPException(403, "Ce cours n'appartient pas à une classe que vous pouvez consulter")
         raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")

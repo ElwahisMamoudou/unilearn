@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from typing import List, Optional
 from datetime import datetime
 
-from models import get_db, User, ClassGroup, AcademicYear, Enrollment, Course
+from models import get_db, User, ClassGroup, Enrollment, Course
 from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/classes", tags=["classes"])

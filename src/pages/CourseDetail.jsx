@@ -3,17 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
 import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions'
+import { thumbUrl } from '../utils/url'
 
 /* ── URL thumbnail ── */
-const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
-const thumbUrl = path => {
-  if (!path) return null
-  if (path.startsWith('http')) return path
-  return BACKEND
-    ? `${BACKEND}/${path.replace(/\\/g, '/').replace(/^\/+/, '')}`
-    : `/${path.replace(/\\/g, '/').replace(/^\/+/, '')}`
-}
-
 const TABS = [
   { key: 'lessons',   label: '📖 Leçons'        },
   { key: 'students',  label: '👥 Étudiants'      },

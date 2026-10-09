@@ -2,22 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
-
-/* ─────────────────────────────────────────────────────────────────
-   CORRECTION PRINCIPALE : construction de l'URL de la thumbnail
-   Le backend stocke des chemins relatifs : "uploads/thumbnails/xxx.jpg"
-   En production (Vercel + Railway) il faut une URL absolue vers le backend.
-   On lit VITE_API_URL défini dans .env  (ex: https://mon-app.railway.app/api)
-   et on retire le "/api" pour obtenir la racine du backend.
-──────────────────────────────────────────────────────────────────── */
-const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
-
-function thumbUrl(path) {
-  if (!path) return null
-  if (path.startsWith('http')) return path          // déjà absolue
-  const clean = path.replace(/\\/g, '/').replace(/^\/+/, '')
-  return BACKEND ? `${BACKEND}/${clean}` : `/${clean}`
-}
+import { thumbUrl } from '../utils/url'
 
 /* ── Palettes & icônes ── */
 const CAT_GRADIENTS = [

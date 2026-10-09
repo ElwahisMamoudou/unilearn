@@ -2,31 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
-
-const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
-const thumbUrl = path => {
-  if (!path) return null
-  if (path.startsWith('http')) return path
-  const clean = path.replace(/\\/g, '/').replace(/^\/+/, '')
-  return BACKEND ? `${BACKEND}/${clean}` : `/${clean}`
-}
-
-const CAT_GRADIENTS = [
-  ['#1e3a5f','#0ea5e9'],['#1a2e1a','#22c55e'],['#2e1a1a','#ef4444'],
-  ['#2e2a1a','#f59e0b'],['#1a1a2e','#8b5cf6'],['#1a2e2e','#14b8a6'],
-]
-const catGrad = id => CAT_GRADIENTS[(id || 0) % CAT_GRADIENTS.length]
-const catIcon = (name = '') => {
-  const l = name.toLowerCase()
-  if (l.includes('info') || l.includes('prog')) return '💻'
-  if (l.includes('math')) return '📐'
-  if (l.includes('phys')) return '⚛️'
-  if (l.includes('chim')) return '🧪'
-  if (l.includes('meca') || l.includes('tim')) return '⚙️'
-  if (l.includes('elec')) return '⚡'
-  if (l.includes('bio')) return '🧬'
-  return '📚'
-}
+import { thumbUrl } from '../utils/url'
+import { catGrad, catIcon } from '../utils/ui'
 
 
 function CourseCard({ c, expanded, lessons, onOpen, onAddLesson, onSession, onDelete, navigate }) {

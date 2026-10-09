@@ -1,21 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
-
-const BACKEND = (import.meta.env.VITE_API_URL || '').replace(/\/api\/?$/, '')
-const thumbUrl = path => {
-  if (!path) return null
-  if (path.startsWith('http')) return path
-  return BACKEND
-    ? `${BACKEND}/${path.replace(/\\/g, '/').replace(/^\/+/, '')}`
-    : `/${path.replace(/\\/g, '/').replace(/^\/+/, '')}`
-}
-
-const LEVEL_COLORS = {
-  'Licence 1': '#3b82f6', 'Licence 2': '#06b6d4', 'Licence 3': '#10b981',
-  'Master 1':  '#f59e0b', 'Master 2':  '#ef4444', 'Doctorat':  '#8b5cf6',
-}
-const lvlColor = l => LEVEL_COLORS[l] || '#6366f1'
+import { thumbUrl } from '../utils/url'
+import { lvlColor } from '../utils/ui'
 
 function useFlash() {
   const [msg, setMsg] = useState({ text: '', type: '' })

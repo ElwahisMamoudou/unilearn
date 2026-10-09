@@ -20,7 +20,7 @@ Protocole (JSON sur WebSocket) :
 
 import json
 import uuid
-from typing import Dict, Set
+from typing import Dict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()

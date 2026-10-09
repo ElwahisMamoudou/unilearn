@@ -8,12 +8,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate }  from 'react-router-dom'
 import api              from '../api/client'
 import useAuthStore     from '../store/authStore'
-
-const LEVEL_COLORS = {
-  'Licence 1': '#3b82f6', 'Licence 2': '#06b6d4', 'Licence 3': '#10b981',
-  'Master 1':  '#f59e0b', 'Master 2':  '#ef4444', 'Doctorat':  '#8b5cf6',
-}
-const lvlColor = l => LEVEL_COLORS[l] || '#6366f1'
+import { lvlColor } from '../utils/ui'
 
 /* ── Carte classe ── */
 function ClassCard({ cls: c, onEdit, onDelete, isAdmin, onClick }) {

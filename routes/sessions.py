@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from auth import get_current_user
 from services.notifications import send_notification
-from models import ClassGroup, Course, Enrollment, User, VideoSession, get_db
+from models import Course, User, VideoSession, get_db
+from permissions import ensure_course_access
 
 try:
     from services.daily_video import (
@@ -27,39 +28,11 @@ except Exception:
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 
-def _teacher_can_manage_course(course: Course, teacher_id: int, db: Session) -> bool:
-    if course.teacher_id == teacher_id:
-        return True
-    if not course.class_group_id:
-        return False
-    class_group = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
-    if class_group and class_group.teacher_id == teacher_id:
-        return True
-    return db.query(Course.id).filter(
-        Course.class_group_id == course.class_group_id,
-        Course.teacher_id == teacher_id,
-    ).first() is not None
-
-
-def _ensure_course_access(course: Course, me: User, db: Session, manage: bool = False) -> None:
-    if me.role == "admin":
-        return
-    if me.role == "teacher":
-        if _teacher_can_manage_course(course, me.id, db):
-            return
-        raise HTTPException(403, "Ce cours ne vous appartient pas")
-    if manage:
-        raise HTTPException(403, "Accès réservé aux enseignants")
-    enrolled = db.query(Enrollment.id).filter_by(student_id=me.id, course_id=course.id).first()
-    if not enrolled:
-        raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
-
-
 def _ensure_session_access(session: VideoSession, me: User, db: Session, manage: bool = False) -> None:
     course = db.query(Course).filter(Course.id == session.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db, manage=manage)
+    ensure_course_access(course, me, db, manage=manage)
 
 
 def _prepare_session_out(session: VideoSession, me: User, fallback: str = "") -> VideoSession:
@@ -109,7 +82,7 @@ def list_sessions(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db)
+    ensure_course_access(course, me, db)
     sessions = (
         db.query(VideoSession)
         .filter(VideoSession.course_id == course_id)
@@ -149,7 +122,7 @@ def create_session(
     course = db.query(Course).filter(Course.id == body.course_id).first()
     if not course:
         raise HTTPException(404, "Cours introuvable")
-    _ensure_course_access(course, me, db, manage=True)
+    ensure_course_access(course, me, db, manage=True)
 
     session = VideoSession(
         course_id    = body.course_id,

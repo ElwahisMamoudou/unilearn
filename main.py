@@ -16,7 +16,7 @@ load_dotenv()
 
 from models import (
     init_db, SessionLocal,
-    User, Category, Course, Lesson, Enrollment, Message,
+    User, Category, Course, Lesson, Enrollment,
     get_db
 )
 from auth import hash_password, verify_password, get_current_user

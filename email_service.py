@@ -5,7 +5,6 @@ import secrets
 from email.mime.multipart import MIMEMultipart
 from email.mime.text      import MIMEText
 from datetime import datetime, timedelta
-from typing import Optional
 
 from sqlalchemy.orm import Session
 from models import User, PasswordResetToken
