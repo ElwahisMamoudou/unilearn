@@ -1,8 +1,9 @@
 from sqlalchemy import (
     create_engine, Column, Integer, String,
-    DateTime, ForeignKey, Boolean, Text, Float, Table, inspect, text
+    DateTime, ForeignKey, Boolean, Text, Float, Table, inspect, text,
+    UniqueConstraint
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker, backref
 from datetime import datetime
 import os, json
 
@@ -578,6 +579,51 @@ def _ensure_runtime_schema() -> None:
                     conn.execute(text(
                         f"ALTER TABLE {quote(table)} ADD COLUMN {quote(column)} {ddl_type}"
                     ))
+
+
+# ══════════════════════════════════════════════════════
+#  JOURNAL D'ACTIVITÉ  (rapports)
+# ══════════════════════════════════════════════════════
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    action      = Column(String(40), nullable=False, index=True)
+    target_type = Column(String(30), nullable=True)
+    target_id   = Column(Integer, nullable=True)
+    course_id   = Column(Integer, nullable=True, index=True)
+    detail      = Column(String(300), nullable=True)
+    ip_address  = Column(String(64), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+
+    user = relationship("User")
+
+
+# ══════════════════════════════════════════════════════
+#  GROUPES À L'INTÉRIEUR D'UN COURS
+# ══════════════════════════════════════════════════════
+class CourseGroup(Base):
+    __tablename__ = "course_groups"
+    __table_args__ = (UniqueConstraint("course_id", "name", name="uq_course_group_name"),)
+    id          = Column(Integer, primary_key=True, index=True)
+    course_id   = Column(Integer, ForeignKey("courses.id"), nullable=False, index=True)
+    name        = Column(String(120), nullable=False)
+    description = Column(String(300), nullable=True)
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+    course  = relationship("Course", backref=backref("groups", cascade="all, delete-orphan"))
+    members = relationship("CourseGroupMember", back_populates="group", cascade="all, delete-orphan")
+
+
+class CourseGroupMember(Base):
+    __tablename__ = "course_group_members"
+    __table_args__ = (UniqueConstraint("group_id", "student_id", name="uq_group_member"),)
+    id         = Column(Integer, primary_key=True, index=True)
+    group_id   = Column(Integer, ForeignKey("course_groups.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    group   = relationship("CourseGroup", back_populates="members")
+    student = relationship("User")
 
 
 def init_db() -> None:

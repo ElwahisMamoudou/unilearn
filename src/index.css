@@ -244,6 +244,31 @@ a { color: inherit; text-decoration: none; }
 .pdf-controls button:hover { background: rgba(255,255,255,.15); }
 video.lesson-video { width: 100%; max-height: calc(100dvh - 56px); background: #000; }
 
+
+/* ── Recherche dans la barre du haut ─────────────── */
+.nav-search { display: flex; align-items: center; background: var(--cream); border: 1px solid var(--border); border-radius: 20px; padding: 0 12px; height: 36px; width: 240px; margin-left: 12px; }
+.nav-search:focus-within { border-color: var(--blue); box-shadow: 0 0 0 .2rem rgba(15,108,191,.2); background: #fff; }
+.nav-search input { border: none; background: none; outline: none; font-family: inherit; font-size: 14px; flex: 1; min-width: 0; color: var(--text); }
+.nav-search button { background: none; border: none; color: var(--text-muted); font-size: 15px; padding: 0 0 0 6px; }
+
+/* ── Onglets et tableaux (style Moodle) ──────────── */
+.tabs-moodle { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.tabs-moodle button { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 10px 18px; color: var(--blue); font-size: 15px; }
+.tabs-moodle button:hover { background: var(--cream); }
+.tabs-moodle button.active { color: var(--text); border-bottom-color: var(--blue); font-weight: 600; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--white); }
+.data-table th { background: var(--cream); text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); font-weight: 700; white-space: nowrap; }
+.data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.data-table tbody tr:hover td { background: var(--cream); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+.filters .form-group { margin: 0; min-width: 160px; }
+.pill { display: inline-block; background: #d4e6f7; color: var(--blue-dark); border-radius: 12px; padding: 1px 10px; font-size: 12px; margin: 0 4px 4px 0; }
+.bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; padding-top: 8px; }
+.bar-chart div { flex: 1; background: var(--blue); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+.bar-chart span { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+@media (max-width: 768px) { .nav-search { display: none; } }
+
 /* ── Responsive ──────────────────────────────────── */
 @media (min-width: 992px) {
   .drawer-open .main { margin-left: var(--drawer-w); }

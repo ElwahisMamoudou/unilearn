@@ -69,3 +69,20 @@ def can_view_course(course: Course, me: User, db: Session) -> bool:
         student_id=me.id,
         course_id=course.id,
     ).first() is not None
+
+
+def viewable_course_ids(db: Session, me: User):
+    """Ensemble des ids de cours que l'utilisateur peut consulter. None = tous (administrateur)."""
+    if me.role == "admin":
+        return None
+    if me.role == "teacher":
+        own_groups = [g for (g,) in db.query(ClassGroup.id).filter(ClassGroup.teacher_id == me.id)]
+        taught_groups = [g for (g,) in db.query(Course.class_group_id).filter(
+            Course.teacher_id == me.id, Course.class_group_id.isnot(None))]
+        groups = set(own_groups) | set(taught_groups)
+        q = db.query(Course.id).filter(Course.teacher_id == me.id)
+        ids = {i for (i,) in q}
+        if groups:
+            ids |= {i for (i,) in db.query(Course.id).filter(Course.class_group_id.in_(groups))}
+        return ids
+    return {i for (i,) in db.query(Enrollment.course_id).filter(Enrollment.student_id == me.id)}

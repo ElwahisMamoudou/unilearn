@@ -15,6 +15,7 @@ const NAV_TEACHER = [
   { to: '/home',      icon: '🏠', text: 'Tableau de bord' },
   { to: '/teacher',   icon: '📖', text: 'Mes cours' },
   { to: '/homeworks', icon: '📝', text: 'Devoirs' },
+  { to: '/reports',   icon: '📊', text: 'Rapports' },
   { to: '/messages',  icon: '✉️', text: 'Messages', badge: true },
 ]
 
@@ -22,6 +23,7 @@ const NAV_ADMIN = [
   { to: '/home',     icon: '🏠', text: 'Tableau de bord' },
   { to: '/admin',    icon: '🏫', text: 'Classes & Promotions' },
   { to: '/courses',  icon: '📚', text: 'Tous les cours' },
+  { to: '/reports',  icon: '📊', text: 'Rapports et journaux' },
   { to: '/messages', icon: '✉️', text: 'Messages', badge: true },
 ]
 

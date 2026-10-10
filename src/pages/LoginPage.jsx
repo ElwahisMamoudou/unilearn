@@ -71,7 +71,10 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p style={{ marginTop: 20, fontSize: 14, textAlign: 'center' }}>
+        <p style={{ marginTop: 16, fontSize: 14, textAlign: 'center' }}>
+          <Link to="/forgot-password" style={{ color: 'var(--blue)' }}>Mot de passe oublié ?</Link>
+        </p>
+        <p style={{ marginTop: 8, fontSize: 14, textAlign: 'center' }}>
           <Link to="/" style={{ color: 'var(--blue)' }}>← Retour à l'accueil du site</Link>
         </p>
       </div>

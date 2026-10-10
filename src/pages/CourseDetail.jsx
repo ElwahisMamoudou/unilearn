@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import CourseToolsBar from '../components/CourseToolsBar'
 import { LiveReplayPlayer, openLiveRoom } from '../utils/videoSessions'
 import { thumbUrl } from '../utils/url'
 
@@ -474,11 +475,14 @@ export default function CourseDetail() {
             <button onClick={() => navigate(-1)} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)' }}>
               ← Retour
             </button>
-            {canManage && (
-              <button onClick={openEdit} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                ✏️ Modifier
-              </button>
-            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <CourseToolsBar course={course} />
+              {canManage && (
+                <button onClick={openEdit} style={{ background: 'rgba(255,255,255,.18)', border: 'none', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13, backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  ✏️ Modifier
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: 'auto' }}>

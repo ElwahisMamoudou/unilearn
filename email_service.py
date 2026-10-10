@@ -2,6 +2,7 @@ import os
 import smtplib
 import logging
 import secrets
+import hashlib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text      import MIMEText
 from datetime import datetime, timedelta
@@ -17,6 +18,25 @@ SMTP_USER     = os.getenv("SMTP_USER",     "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM     = os.getenv("SMTP_FROM",     f"UniLearn <{SMTP_USER}>")
 EMAIL_ENABLED = bool(SMTP_USER and SMTP_PASSWORD)
+FRONTEND_URL  = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+
+def hash_token(token: str) -> str:
+    """Seul l'empreinte du jeton est stockée : une fuite de la base ne donne aucun lien valide."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_reset_token(db: Session, user: User, hours: int = 1) -> str:
+    """Crée un jeton à usage unique (les anciens jetons non utilisés sont invalidés) et le renvoie en clair."""
+    db.query(PasswordResetToken).filter_by(user_id=user.id, used=False).update({"used": True})
+    token = secrets.token_urlsafe(32)
+    db.add(PasswordResetToken(
+        user_id=user.id, token=hash_token(token),
+        expires_at=datetime.utcnow() + timedelta(hours=hours),
+    ))
+    db.commit()
+    return token
+
 def _send(to: str, subject: str, html: str, text: str) -> bool:
     if not EMAIL_ENABLED:
         logger.warning(f"Email desactive. Destinataire : {to}")
@@ -72,18 +92,12 @@ def send_account_created(
     role_label = {"student": "Etudiant", "teacher": "Enseignant", "admin": "Administrateur"}.get(role, role)
     role_color = {"student": "#16a34a", "teacher": "#1d4ed8", "admin": "#991b1b"}.get(role, "#1e3a5f")
 
-    setup_token = secrets.token_urlsafe(32)
+    setup_link = login_url
     if db:
         user = db.query(User).filter_by(email=to_email).first()
         if user:
-            db.add(PasswordResetToken(
-                user_id=user.id,
-                token=setup_token,
-                expires_at=datetime.utcnow() + timedelta(hours=24),
-            ))
-            db.commit()
+            setup_link = f"{FRONTEND_URL}/reset-password?token={create_reset_token(db, user, hours=24)}"
 
-    setup_link = f"{login_url}?setup_token={setup_token}"
     subject = "Bienvenue sur UniLearn - Activez votre compte"
     body_html = (
         f"<h2 style='margin:0 0 8px;color:#1e3a5f;'>Bienvenue, {full_name} !</h2>"
@@ -124,4 +138,22 @@ def send_password_reset(
         "font-size:15px;font-weight:700;padding:14px 36px;border-radius:8px;'>Se connecter</a></div>"
     )
     body_text = f"Bonjour {full_name},\n\nMot de passe temporaire : {new_password}\n\nConnexion : {login_url}\n\nMessage automatique."
+    return _send(to_email, subject, _html_template(subject, body_html), body_text)
+
+
+def send_password_reset_link(to_email: str, full_name: str, reset_link: str) -> bool:
+    subject = "UniLearn - Réinitialisation de votre mot de passe"
+    body_html = (
+        "<h2 style='margin:0 0 8px;color:#1e3a5f;'>Mot de passe oublié ?</h2>"
+        f"<p style='color:#64748b;font-size:14px;'>Bonjour <strong>{full_name}</strong>, "
+        "une demande de réinitialisation de mot de passe a été faite pour votre compte.</p>"
+        f"<div style='text-align:center;margin:24px 0;'><a href='{reset_link}' "
+        "style='display:inline-block;background:#0f6cbf;color:#fff;text-decoration:none;"
+        "font-size:15px;font-weight:700;padding:14px 36px;border-radius:8px;'>Choisir un nouveau mot de passe</a></div>"
+        "<div style='background:#fef9c3;border:1px solid #f59e0b;border-radius:8px;padding:12px 16px;'>"
+        "<p style='margin:0;font-size:13px;color:#92400e;'>Ce lien est valable 1 heure. "
+        "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</p></div>"
+    )
+    body_text = (f"Bonjour {full_name},\n\nPour choisir un nouveau mot de passe (lien valable 1 heure) :\n"
+                 f"{reset_link}\n\nSi vous n'avez rien demandé, ignorez ce message.")
     return _send(to_email, subject, _html_template(subject, body_html), body_text)

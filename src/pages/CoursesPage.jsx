@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import RestoreCourseButton from '../components/RestoreCourseButton'
 import { thumbUrl } from '../utils/url'
 
 /* ── Palettes & icônes ── */
@@ -197,13 +198,14 @@ export default function CoursesPage({ myOnly }) {
             <div style={{fontSize:11,fontWeight:700,color:'#60a5fa',letterSpacing:2,textTransform:'uppercase',marginBottom:8}}>
               UniLearn · Université de Ngaoundéré
             </div>
-            <h1 style={{fontFamily:"'Sora',serif",fontSize:26,fontWeight:800,margin:'0 0 8px',letterSpacing:-.3}}>
+            <h1 style={{fontFamily:'var(--font)',fontSize:26,fontWeight:800,margin:'0 0 8px',letterSpacing:-.3}}>
               {myOnly ? (isTeacher ? '📖 Mes cours' : '🎓 Mon parcours') : '🌟 Catalogue des cours'}
             </h1>
             <p style={{opacity:.6,fontSize:13,margin:0}}>
               {filtered.length} cours disponible{filtered.length!==1?'s':''}{filterCat && ` · ${filterCat}`}
             </p>
           </div>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
           {isTeacher && (
             <button onClick={() => navigate('/teacher')} style={{
               background:'#3b82f6',border:'none',borderRadius:12,
@@ -211,6 +213,13 @@ export default function CoursesPage({ myOnly }) {
               boxShadow:'0 4px 14px rgba(59,130,246,.4)',
             }}>+ Créer un cours</button>
           )}
+          {(user?.role === 'teacher' || user?.role === 'admin') && (
+            <RestoreCourseButton style={{
+              background:'rgba(255,255,255,.15)',border:'1px solid rgba(255,255,255,.4)',borderRadius:12,
+              padding:'10px 22px',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:13,
+            }} />
+          )}
+          </div>
         </div>
         <div style={{display:'flex',gap:28,marginTop:20,flexWrap:'wrap'}}>
           {[
@@ -247,7 +256,7 @@ export default function CoursesPage({ myOnly }) {
             style={{
               width:'100%',padding:'11px 14px 11px 42px',borderRadius:12,
               border:'1.5px solid #e2e8f0',fontSize:13,outline:'none',
-              background:'white',boxSizing:'border-box',fontFamily:"'Sora',sans-serif",
+              background:'white',boxSizing:'border-box',fontFamily:'var(--font)',
             }}
             onFocus={e=>e.currentTarget.style.borderColor='#3b82f6'}
             onBlur={e=>e.currentTarget.style.borderColor='#e2e8f0'}
@@ -285,7 +294,7 @@ export default function CoursesPage({ myOnly }) {
       ) : filtered.length === 0 ? (
         <div style={{textAlign:'center',padding:'60px 20px'}}>
           <div style={{fontSize:52,marginBottom:16}}>🔎</div>
-          <h3 style={{color:'#1e3a6e',fontFamily:"'Sora',sans-serif",marginBottom:8}}>
+          <h3 style={{color:'#1e3a6e',fontFamily:'var(--font)',marginBottom:8}}>
             {search ? 'Aucun cours trouvé' : 'Aucun cours disponible'}
           </h3>
           <p style={{color:'#94a3b8',fontSize:14}}>
@@ -399,7 +408,7 @@ function CourseCardXL({ course:c, idx, isStudent, isTeacher, isAdmin, enrolling,
         {thumb && (
           <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'16px 18px 12px'}}>
             <div style={{
-              fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:800,
+              fontFamily:'var(--font)',fontSize:16,fontWeight:800,
               color:'#fff',lineHeight:1.3,
               textShadow:'0 2px 8px rgba(0,0,0,.5)',
               display:'-webkit-box',WebkitLineClamp:2,
@@ -425,7 +434,7 @@ function CourseCardXL({ course:c, idx, isStudent, isTeacher, isAdmin, enrolling,
         {/* Titre si pas de thumbnail */}
         {!thumb && (
           <h3 style={{
-            fontFamily:"'Sora',sans-serif",fontSize:16,fontWeight:800,
+            fontFamily:'var(--font)',fontSize:16,fontWeight:800,
             color:'#1d2125',margin:'0 0 8px',lineHeight:1.35,
             display:'-webkit-box',WebkitLineClamp:2,
             WebkitBoxOrient:'vertical',overflow:'hidden',
@@ -533,7 +542,7 @@ function CourseListRow({ course:c, idx, isStudent, isTeacher, isAdmin, enrolling
         {!thumb && icon}
       </div>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:15,color:'#1d2125',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+        <div style={{fontFamily:'var(--font)',fontWeight:700,fontSize:15,color:'#1d2125',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
           {c.title}
         </div>
         <div style={{fontSize:12,color:'#64748b',marginTop:4,fontWeight:500}}>

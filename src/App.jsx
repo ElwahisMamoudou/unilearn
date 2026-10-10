@@ -3,6 +3,11 @@ import { Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from
 import useAuthStore from './store/authStore'
 import Sidebar, { navItemsFor } from './components/Sidebar'
 import Logo from './components/Logo'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
+import SearchPage from './pages/SearchPage'
+import ReportsPage from './pages/ReportsPage'
+import GroupsPage from './pages/GroupsPage'
 import NotificationBell from './components/NotificationBell'
 import Dashboard from './pages/Dashboard'
 import CoursesPage from './pages/CoursesPage'
@@ -38,10 +43,13 @@ const PAGE_TITLES = {
   '/homeworks':  'Devoirs',
   '/classes':    'Classes & Promotions',
   '/profile':    'Mon profil',
+  '/search':     'Recherche',
+  '/reports':    'Rapports et journaux',
 }
 
 function pageTitle(pathname) {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname]
+  if (/^\/courses\/\d+\/groups$/.test(pathname)) return 'Groupes du cours'
   if (pathname.startsWith('/courses/')) return 'Cours'
   if (pathname.startsWith('/classes/')) return 'Classe'
   if (pathname.startsWith('/forum/'))   return 'Forum'
@@ -72,6 +80,11 @@ function AppLayout() {
   const title = pageTitle(location.pathname)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U'
   const doLogout = () => { logout(); navigate('/') }
+  const [searchText, setSearchText] = useState('')
+  const submitSearch = e => {
+    e.preventDefault()
+    if (searchText.trim().length >= 2) navigate(`/search?q=${encodeURIComponent(searchText.trim())}`)
+  }
   const closeDrawerOnMobile = () => { if (window.innerWidth < 992) setDrawerOpen(false) }
 
   return (
@@ -87,6 +100,10 @@ function AppLayout() {
             <NavLink key={i.to} to={i.to} end className={({ isActive }) => (isActive ? 'active' : '')}>{i.text}</NavLink>
           ))}
         </nav>
+        <form className="nav-search" onSubmit={submitSearch} role="search">
+          <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Rechercher…" aria-label="Recherche globale" />
+          <button type="submit" aria-label="Lancer la recherche">🔍</button>
+        </form>
         <div className="nav-right">
           <NotificationBell />
           <div className="user-menu" ref={menuRef}>
@@ -152,6 +169,11 @@ function AppLayout() {
                 : <Navigate to="/home" replace />
             } />
             <Route path="/profile"         element={<ProfilePage />} />
+            <Route path="/search"          element={<SearchPage />} />
+            <Route path="/courses/:courseId/groups" element={<GroupsPage />} />
+            <Route path="/reports"         element={
+              ['admin', 'teacher'].includes(user?.role) ? <ReportsPage /> : <Navigate to="/home" replace />
+            } />
             <Route path="*"               element={<Navigate to="/home" replace />} />
           </Routes>
         </main>
@@ -180,6 +202,10 @@ export default function App() {
       <Route path="/login"
         element={token ? <Navigate to="/home" replace /> : <LoginPage />}
       />
+
+      {/* Mot de passe oublié (public) */}
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password"  element={<ResetPasswordPage />} />
 
       {/* OAuth callback — DOIT être AVANT /* (wildcard) */}
       <Route path="/callback" 

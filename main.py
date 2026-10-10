@@ -37,6 +37,11 @@ from routes import (
     academic      as academic_routes,
     import_export as ie_routes,
     classes       as class_routes,
+    password_reset as password_reset_routes,
+    groups        as group_routes,
+    search        as search_routes,
+    reports       as report_routes,
+    course_tools  as course_tools_routes,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -203,6 +208,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["Content-Disposition"],      # nécessaire pour nommer les fichiers téléchargés (sauvegardes, CSV)
     max_age=3600,
 )
 
@@ -212,7 +218,33 @@ app.add_middleware(
 from routes.youtube_oauth import router as youtube_oauth_router
 from routes.webrtc import router as webrtc_router
 
+
+# ── Journal d'activité : enregistre automatiquement les actions importantes ──
+from starlette.concurrency import run_in_threadpool
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from activity import record_request
+
+app.state.limiter = auth_routes.limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)   # 429 au lieu d'une erreur 500
+
+
+@app.middleware("http")
+async def activity_log_middleware(request, call_next):
+    response = await call_next(request)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header:
+        try:
+            forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            ip = forwarded or (request.client.host if request.client else None)
+            await run_in_threadpool(record_request, request.method, request.url.path,
+                                    response.status_code, auth_header, ip)
+        except Exception:  # la journalisation ne doit jamais casser une requête
+            pass
+    return response
+
 app.include_router(auth_routes.router)
+app.include_router(password_reset_routes.router)
 app.include_router(course_routes.router)
 app.include_router(lesson_routes.router)
 app.include_router(category_routes.router)
@@ -228,6 +260,10 @@ app.include_router(ie_routes.router)
 app.include_router(class_routes.router)
 app.include_router(youtube_oauth_router)
 app.include_router(webrtc_router)
+app.include_router(group_routes.router)
+app.include_router(search_routes.router)
+app.include_router(report_routes.router)
+app.include_router(course_tools_routes.router)
 
 
 # ─────────────────────────────────────────────
