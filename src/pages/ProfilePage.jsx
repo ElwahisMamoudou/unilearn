@@ -52,7 +52,7 @@ export default function ProfilePage() {
     if (pwdForm.new_password !== pwdForm.confirm_password) return flash('Les mots de passe ne correspondent pas', 'error')
     setLoadingPwd(true)
     try {
-      await api.post('/users/me/change-password', {
+      await api.post('/users/change-password', {
         current_password: pwdForm.current_password,
         new_password:     pwdForm.new_password,
       })

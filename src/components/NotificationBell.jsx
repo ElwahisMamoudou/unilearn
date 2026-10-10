@@ -49,7 +49,7 @@ export default function NotificationBell() {
   }
 
   const markAllRead = async () => {
-    await api.post('/notifications/read-all').catch(() => {})
+    await api.patch('/notifications/read-all').catch(() => {})
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })))
   }
 

@@ -226,7 +226,13 @@ export default function AdminDashboard() {
   }
 
   const setCurrentYear = async yr => {
-    try { await api.patch(`/academic/years/${yr.id}/set-current`) } catch {}
+    try {
+      await api.put(`/academic/years/${yr.id}`, {
+        name: yr.name, start_date: yr.start_date, end_date: yr.end_date, is_current: true,
+      })
+    } catch (err) {
+      return flash(err.response?.data?.detail || 'Erreur', 'error')
+    }
     setYears(prev => prev.map(y => ({ ...y, is_current: y.id === yr.id })))
     flash(`"${yr.name}" definie comme annee courante`)
   }

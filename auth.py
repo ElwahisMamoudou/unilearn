@@ -27,10 +27,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-def _get_db():
-    """Lazy wrapper around models.get_db to avoid circular imports at module load."""
-    from models import get_db
-    yield from get_db()
+# On utilise EXACTEMENT la même fonction get_db que les routes : FastAPI ne crée alors
+# qu'une seule session par requête. (Avant, un « wrapper » créait une 2e session, et les
+# modifications faites sur l'utilisateur connecté — changement de mot de passe, profil —
+# n'étaient jamais enregistrées.)
+from models import get_db as _get_db
 
 
 def hash_password(password: str) -> str:
