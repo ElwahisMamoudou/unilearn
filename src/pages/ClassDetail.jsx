@@ -466,7 +466,17 @@ export default function ClassDetail() {
   const enrollToCourse = async (courseId) => {
     try {
       const r = await api.post(`/classes/${id}/enroll-course/${courseId}`)
-      flash(`${r.data.enrolled} etudiant(s) inscrit(s) au cours "${r.data.course}"`)
+      const { enrolled, already, associated, other_class, course } = r.data
+      const parts = []
+      if (enrolled) parts.push(`${enrolled} etudiant(s) inscrit(s)`)
+      if (already)  parts.push(`${already} deja inscrit(s)`)
+      if (associated) parts.push('cours associe a la classe')
+      if (other_class) parts.push(`attention : ce cours appartient deja a la classe "${other_class}"`)
+      flash(`"${course}" : ${parts.join(', ') || 'rien a faire'}`, other_class ? 'error' : 'success')
+      // recharge les listes pour que le changement soit visible tout de suite
+      const [acr] = await Promise.all([api.get('/admin/courses'), reloadCourses()])
+      setAllCourses(acr.data)
+      const sel = document.getElementById('course-sel'); if (sel) sel.value = ''
     } catch (err) { flash(err.response?.data?.detail || 'Erreur', 'error') }
   }
 

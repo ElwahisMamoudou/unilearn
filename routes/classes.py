@@ -340,12 +340,24 @@ def enroll_class_to_course(
             db.add(Enrollment(student_id=student.id, course_id=course_id))
             enrolled.append(student.id)
 
+    # Le bouton s'appelle « Associer un cours existant » : le cours rejoint donc la classe
+    # (sauf s'il appartient déjà à une AUTRE classe, qu'on ne détache pas en silence).
+    associated, other_class = False, None
+    if course.class_group_id is None:
+        course.class_group_id = class_id
+        associated = True
+    elif course.class_group_id != class_id:
+        other = db.query(ClassGroup).filter(ClassGroup.id == course.class_group_id).first()
+        other_class = other.name if other else None
+
     db.commit()
     return {
-        "class":    cg.name,
-        "course":   course.title,
-        "enrolled": len(enrolled),
-        "already":  len(already),
+        "class":       cg.name,
+        "course":      course.title,
+        "enrolled":    len(enrolled),
+        "already":     len(already),
+        "associated":  associated,
+        "other_class": other_class,
     }
 
 

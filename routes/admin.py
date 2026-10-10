@@ -274,9 +274,14 @@ def admin_update_course(
     if not teacher:
         raise HTTPException(404, "Enseignant introuvable")
 
-    class_group_id = body.class_group_id or body.class_id
-    if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
-        raise HTTPException(404, "Classe introuvable")
+    # La classe n'est modifiée que si elle est envoyée explicitement : avant, les formulaires de
+    # modification (qui ne l'envoient pas) remettaient class_group_id à vide et détachaient le cours.
+    sent = body.model_fields_set
+    class_group_id = course.class_group_id
+    if "class_group_id" in sent or "class_id" in sent:
+        class_group_id = body.class_group_id or body.class_id
+        if class_group_id and not db.query(ClassGroup.id).filter(ClassGroup.id == class_group_id).first():
+            raise HTTPException(404, "Classe introuvable")
 
     course.title          = body.title
     course.description    = body.description

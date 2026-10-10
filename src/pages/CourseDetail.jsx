@@ -342,11 +342,15 @@ export default function CourseDetail() {
     if (!selectedIds.length) return
     setEnrollLoading(true)
     try {
-      await api.post(`/admin/courses/${id}/enroll`, { student_ids: selectedIds })
+      const res = await api.post(`/admin/courses/${id}/enroll`, { student_ids: selectedIds })
       const r = await api.get(`/admin/courses/${id}/students`)
       setStudents(r.data)
       setEnrollModal(false)
-      flash(`${selectedIds.length} étudiant(s) inscrit(s) avec succès`)
+      const added = res.data?.enrolled?.length ?? 0
+      const already = res.data?.already_enrolled?.length ?? 0
+      flash(added
+        ? `${added} étudiant(s) inscrit(s)${already ? `, ${already} déjà inscrit(s)` : ''}`
+        : `Aucune nouvelle inscription (${already} déjà inscrit(s))`)
     } catch (err) {
       flash(err.response?.data?.detail || 'Erreur inscription', 'error')
     } finally {
