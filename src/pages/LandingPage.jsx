@@ -1,6 +1,14 @@
 import { Link, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 
+const MECATIM_OPTIONS = [
+  'Robotique et systèmes autonomes (RSA)',
+  'Conception des systèmes complexes (CSC)',
+  'Maintenance des systèmes complexes (MSC)',
+  'Ingénierie numérique (IN)',
+  'Fabrication numérique et prototypage rapide (FNPR)',
+]
+
 const FEATURES = [
   { icon: '📚', title: 'Cours en ligne', text: 'Leçons en PDF et en vidéo, avec suivi de votre progression.' },
   { icon: '📝', title: 'Devoirs et examens', text: 'Remise de travaux, évaluations en ligne et consultation des notes.' },
@@ -38,6 +46,30 @@ export default function LandingPage() {
                 fourni par votre établissement.
               </p>
               <button className="btn btn-primary" onClick={() => navigate('/login')}>Se connecter</button>
+            </div>
+          </div>
+
+          {/* Affiche de la formation (sans les informations de candidature) */}
+          <div className="card" style={{ marginBottom: 24, overflow: 'hidden' }}>
+            <img
+              src="/affiche-mecatim.jpg"
+              alt="Affiche : Master professionnel Mécatronique, Technologies d'Innovation et Maintenance (MecaTIM), ENSAI de l'Université de Ngaoundéré"
+              style={{ width: '100%', height: 'auto', display: 'block' }}
+              loading="lazy"
+            />
+            <div className="card-body">
+              <h2 style={{ fontSize: 20, fontWeight: 500, marginBottom: 6 }}>
+                Master professionnel MecaTIM — niveaux M1 et M2
+              </h2>
+              <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Au niveau 2, 5 options au choix :
+              </p>
+              <ul style={{ paddingLeft: 20, fontSize: 15, lineHeight: 1.8 }}>
+                {MECATIM_OPTIONS.map(o => <li key={o}>{o}</li>)}
+              </ul>
+              <p style={{ fontSize: 14, marginTop: 12 }}>
+                <strong>Formation disponible en ligne et en présentiel.</strong>
+              </p>
             </div>
           </div>
 
