@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import GroupRestriction from '../components/GroupRestriction'
 
 export default function HomeworkPage() {
   const { user }  = useAuthStore()
@@ -287,6 +288,9 @@ export default function HomeworkPage() {
                     )}
                     {isTeacher && (
                       <>
+                        <GroupRestriction courseId={selCourse} targetType="homework" targetId={hw.id}
+                          groups={hw.restricted_groups || []}
+                          onSaved={() => api.get(`/homeworks/course/${selCourse}`).then(r => setHomeworks(r.data))} />
                         <button className="btn btn-outline btn-sm" onClick={() => loadSubs(hw)}>
                           Soumissions
                         </button>

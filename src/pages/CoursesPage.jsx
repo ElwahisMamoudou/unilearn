@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
-import RestoreCourseButton from '../components/RestoreCourseButton'
 import { thumbUrl } from '../utils/url'
 
 /* ── Palettes & icônes ── */
@@ -212,12 +211,6 @@ export default function CoursesPage({ myOnly }) {
               padding:'10px 22px',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:13,
               boxShadow:'0 4px 14px rgba(59,130,246,.4)',
             }}>+ Créer un cours</button>
-          )}
-          {(user?.role === 'teacher' || user?.role === 'admin') && (
-            <RestoreCourseButton style={{
-              background:'rgba(255,255,255,.15)',border:'1px solid rgba(255,255,255,.4)',borderRadius:12,
-              padding:'10px 22px',color:'#fff',fontWeight:700,cursor:'pointer',fontSize:13,
-            }} />
           )}
           </div>
         </div>

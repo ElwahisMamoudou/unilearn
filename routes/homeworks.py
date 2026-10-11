@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from models import get_db, User, Course, Enrollment, Homework, HomeworkSubmission
 from auth import get_current_user, require_teacher
 from services.notifications import send_notification
+from group_access import (allowed_ids_for_student, clear_restrictions, restricted_groups_map,
+                          student_can_access)
 from permissions import ensure_course_access
 
 router = APIRouter(prefix="/api/homeworks", tags=["homeworks"])
@@ -143,6 +145,8 @@ def download_homework_file(
 
     if me.role == "student" and not hw.is_published:
         raise HTTPException(403, "Devoir non publié")
+    if not student_can_access(db, me, "homework", hw.id):
+        raise HTTPException(403, "Ce devoir est réservé à certains groupes")
 
     if not hw.file_path:
         raise HTTPException(404, "Aucun fichier joint à ce devoir")
@@ -174,11 +178,15 @@ def list_homeworks(
     ensure_course_access(course, me, db)
 
     hws = db.query(Homework).filter(Homework.course_id == course_id).all()
+    if me.role == "student":
+        allowed = allowed_ids_for_student(db, me, "homework", [h.id for h in hws])   # devoirs limités à des groupes
+    else:
+        restricted = restricted_groups_map(db, "homework", [h.id for h in hws])
     result = []
     now = datetime.now(timezone.utc)
 
     for hw in hws:
-        if me.role == "student" and not hw.is_published:
+        if me.role == "student" and (not hw.is_published or hw.id not in allowed):
             continue
         due = hw.due_date.replace(tzinfo=timezone.utc) if hw.due_date.tzinfo is None else hw.due_date
         my_sub = None
@@ -202,6 +210,7 @@ def list_homeworks(
             "submission_count": len(hw.submissions),
             "my_submission":    my_sub,
             "is_late":          now > due,
+            "restricted_groups": [] if me.role == "student" else restricted.get(hw.id, []),
         })
     return result
 
@@ -271,6 +280,7 @@ def delete_homework(
         if os.path.exists(abs_path):
             os.remove(abs_path)
 
+    clear_restrictions(db, "homework", hw.id)
     db.delete(hw)
     db.commit()
 
@@ -294,6 +304,8 @@ async def submit_homework(
     enrolled = db.query(Enrollment).filter_by(student_id=me.id, course_id=hw.course_id).first()
     if not enrolled:
         raise HTTPException(403, "Vous n'êtes pas inscrit à ce cours")
+    if not student_can_access(db, me, "homework", hw.id):
+        raise HTTPException(403, "Ce devoir est réservé à certains groupes")
 
     existing = db.query(HomeworkSubmission).filter_by(
         homework_id=hw_id, student_id=me.id

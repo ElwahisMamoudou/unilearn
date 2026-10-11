@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
-from models import Course, CourseGroup, CourseGroupMember, Enrollment, User, get_db
+from group_access import RESTRICTABLE, restricted_groups_map, set_restrictions
+from models import (Course, CourseGroup, CourseGroupMember, Enrollment, ForumQuestion, Homework, User, get_db)
 from permissions import ensure_course_access
 
 router = APIRouter(prefix="/api/courses/{course_id}/groups", tags=["groups"])
@@ -181,3 +182,43 @@ def remove_member(course_id: int, group_id: int, student_id: int, db: Session = 
         raise HTTPException(404, "Cet étudiant n'est pas dans le groupe")
     db.delete(row)
     db.commit()
+
+
+# ── Restreindre un devoir ou une discussion à certains groupes ────────────
+
+class RestrictionIn(BaseModel):
+    group_ids: List[int] = []          # liste vide = visible par tous les étudiants du cours
+
+
+def _target(db: Session, course_id: int, target_type: str, target_id: int):
+    if target_type not in RESTRICTABLE:
+        raise HTTPException(400, "Seuls les devoirs et les discussions du forum peuvent être limités à des groupes")
+    model = Homework if target_type == "homework" else ForumQuestion
+    obj = db.query(model).filter(model.id == target_id, model.course_id == course_id).first()
+    if not obj:
+        raise HTTPException(404, "Élément introuvable dans ce cours")
+    return obj
+
+
+@router.get("/restrictions/{target_type}/{target_id}")
+def get_restrictions(course_id: int, target_type: str, target_id: int, db: Session = Depends(get_db),
+                     me: User = Depends(get_current_user)):
+    course = _course(db, course_id)
+    ensure_course_access(course, me, db, manage=True)
+    _target(db, course_id, target_type, target_id)
+    return {"groups": restricted_groups_map(db, target_type, [target_id]).get(target_id, [])}
+
+
+@router.put("/restrictions/{target_type}/{target_id}")
+def put_restrictions(course_id: int, target_type: str, target_id: int, body: RestrictionIn,
+                     db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+    course = _course(db, course_id)
+    ensure_course_access(course, me, db, manage=True)
+    _target(db, course_id, target_type, target_id)
+    valid = {gid for (gid,) in db.query(CourseGroup.id).filter(CourseGroup.course_id == course_id,
+                                                               CourseGroup.id.in_(body.group_ids or [-1]))}
+    if set(body.group_ids) - valid:
+        raise HTTPException(400, "Un des groupes n'appartient pas à ce cours")
+    set_restrictions(db, target_type, target_id, body.group_ids)
+    db.commit()
+    return {"groups": restricted_groups_map(db, target_type, [target_id]).get(target_id, [])}

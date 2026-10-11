@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import useAuthStore from '../store/authStore'
+import GroupRestriction from '../components/GroupRestriction'
 
 export default function ForumPage() {
   const { courseId } = useParams()
@@ -77,6 +78,8 @@ export default function ForumPage() {
     flash('Reponse supprimee')
   }
 
+  const isStaff = user?.role === 'admin' || user?.role === 'teacher'
+
   const canDelete = (authorId) =>
     user?.id === authorId || user?.role === 'admin' ||
     (user?.role === 'teacher' && course?.teacher_id === user?.id)
@@ -130,7 +133,7 @@ export default function ForumPage() {
                   borderLeft: selected?.id === p.id ? '3px solid var(--blue)' : '3px solid transparent',
                 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', marginBottom: 4, lineHeight: 1.3 }}>
-                  {p.title}
+                  {p.title}{p.restricted_groups?.length > 0 && <span title={`Réservé : ${p.restricted_groups.map(g => g.name).join(', ')}`}> 🔒</span>}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6,
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -168,6 +171,13 @@ export default function ForumPage() {
                 <h3 style={{ fontFamily: 'var(--font)', fontSize: 18, color: 'var(--navy)', flex: 1 }}>
                   {selected.title}
                 </h3>
+                {isStaff && (
+                  <span style={{ marginLeft: 12, flexShrink: 0 }}>
+                    <GroupRestriction courseId={courseId} targetType="forum" targetId={selected.id}
+                      groups={selected.restricted_groups || []}
+                      onSaved={() => { loadPost(selected.id); loadPosts() }} />
+                  </span>
+                )}
                 {canDelete(selected.author_id) && (
                   <button className="btn btn-danger btn-sm"
                     style={{ marginLeft: 12, flexShrink: 0 }}

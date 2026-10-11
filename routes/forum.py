@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 
-from models import get_db, User, Course, Enrollment, ForumQuestion, ForumReply
+from models import get_db, User, Course, CourseGroup, Enrollment, ForumQuestion, ForumReply
+from group_access import (allowed_ids_for_student, clear_restrictions, restricted_groups_map,
+                          set_restrictions, student_can_access)
 from auth import get_current_user
 from services.notifications import send_notification
 
@@ -36,11 +38,13 @@ class QuestionOut(BaseModel):
     created_at:  datetime
     reply_count: int = 0
     replies:     List[ReplyOut] = []
+    restricted_groups: List[dict] = []     # groupes autorisés (visible seulement par le personnel)
     class Config: from_attributes = True
 
 class QuestionIn(BaseModel):
     title: str
     body:  str
+    group_ids: List[int] = []              # enseignant/admin : limiter la discussion à ces groupes
 
 class ReplyIn(BaseModel):
     body: str
@@ -104,7 +108,14 @@ def list_questions(
         .order_by(ForumQuestion.created_at.desc())
         .all()
     )
-    return [_fmt_question(q) for q in questions]
+    if me.role == "student":
+        allowed = allowed_ids_for_student(db, me, "forum", [q.id for q in questions])
+        return [_fmt_question(q) for q in questions if q.id in allowed]
+    groups = restricted_groups_map(db, "forum", [q.id for q in questions])
+    out = [_fmt_question(q) for q in questions]
+    for item in out:
+        item.restricted_groups = groups.get(item.id, [])
+    return out
 
 
 # ── Détail question avec réponses ─────────────────
@@ -119,7 +130,12 @@ def get_question(
     if not q:
         raise HTTPException(404, "Question introuvable")
     _check_access(q.course_id, me, db)
-    return _fmt_question(q, with_replies=True)
+    if not student_can_access(db, me, "forum", q.id):
+        raise HTTPException(403, "Cette discussion est réservée à certains groupes")
+    out = _fmt_question(q, with_replies=True)
+    if me.role != "student":
+        out.restricted_groups = restricted_groups_map(db, "forum", [q.id]).get(q.id, [])
+    return out
 
 
 # ── Créer une question ────────────────────────────
@@ -141,6 +157,13 @@ async def create_question(
         title=body.title.strip(), body=body.body.strip(),
     )
     db.add(q); db.flush()
+
+    if body.group_ids and me.role in ("admin", "teacher"):
+        valid = {g for (g,) in db.query(CourseGroup.id).filter(CourseGroup.course_id == course_id,
+                                                               CourseGroup.id.in_(body.group_ids))}
+        if set(body.group_ids) - valid:
+            raise HTTPException(400, "Un des groupes n'appartient pas à ce cours")
+        set_restrictions(db, "forum", q.id, body.group_ids)
 
     # Notifier le prof du cours (sauf si c'est lui qui poste)
     course = db.query(Course).filter(Course.id == course_id).first()
@@ -170,6 +193,7 @@ def delete_question(
     course = db.query(Course).filter(Course.id == q.course_id).first()
     if me.id != q.author_id and not _can_moderate(me, course):
         raise HTTPException(403, "Accès refusé")
+    clear_restrictions(db, "forum", q.id)
     db.delete(q); db.commit()
 
 
@@ -207,6 +231,8 @@ async def create_reply(
     if q.is_closed:
         raise HTTPException(400, "Cette question est fermée — impossible de répondre")
     _check_access(q.course_id, me, db)
+    if not student_can_access(db, me, "forum", q.id):
+        raise HTTPException(403, "Cette discussion est réservée à certains groupes")
     if not body.body.strip():
         raise HTTPException(400, "La réponse ne peut pas être vide")
     reply = ForumReply(

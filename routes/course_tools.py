@@ -1,23 +1,15 @@
-"""Sauvegarde, restauration et copie d'un cours (comme « Sauvegarde / Restauration / Importer » de Moodle).
+"""Copie d'un cours : duplique le contenu (leçons et fichiers, examens et questions, devoirs, miniature).
 
-Une sauvegarde est un fichier .zip contenant `course.json` (cours, leçons, examens avec leurs questions, devoirs)
-et les fichiers associés (PDF, vidéos, miniature...). Les inscriptions, les copies d'étudiants, les notes et
-les messages du forum ne sont PAS inclus : on sauvegarde le contenu, pas les personnes.
+Les inscriptions, les copies d'étudiants, les notes et les messages du forum ne sont PAS copiés.
+La copie est créée non publiée. Aucun fichier n'est téléchargé : tout se passe sur le serveur.
 """
-import io
-import json
 import os
-import shutil
-import tempfile
 import uuid
-import zipfile
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from starlette.background import BackgroundTask
 
 from auth import get_current_user
 from models import Category, Course, Exam, ExamQuestion, Homework, Lesson, User, get_db
@@ -26,8 +18,6 @@ from permissions import ensure_course_access
 router = APIRouter(prefix="/api/courses", tags=["course-tools"])
 
 UPLOAD_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
-MAX_RESTORE_BYTES = int(os.getenv("MAX_RESTORE_MB", "200")) * 1024 * 1024
-MAX_UNZIPPED_BYTES = MAX_RESTORE_BYTES * 3
 FORMAT_VERSION = 1
 ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mp3", ".zip", ".txt",
                ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
@@ -53,7 +43,7 @@ def _iso(d):
 
 
 def _export(course: Course):
-    """Retourne (dictionnaire JSON, {nom dans le zip: chemin du fichier})."""
+    """Retourne (dictionnaire JSON, {nom interne: chemin du fichier})."""
     files = {}
 
     def add(abs_path):
@@ -194,71 +184,4 @@ def duplicate_course(course_id: int, db: Session = Depends(get_db), me: User = D
 
     owner = course.teacher_id if me.role == "admin" else me.id
     new = _import(data, read, db, owner, title_suffix=" (copie)", keep_links_from=course)
-    return {"id": new.id, "title": new.title}
-
-
-@router.get("/{course_id}/backup")
-def backup_course(course_id: int, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
-    course = _get_course(db, course_id)
-    ensure_course_access(course, me, db, manage=True)
-    data, files = _export(course)
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    tmp.close()
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("course.json", json.dumps(data, ensure_ascii=False, indent=2))
-        for arc, path in files.items():
-            z.write(path, arc)
-
-    safe = "".join(ch if ch.isalnum() else "-" for ch in course.title)[:40].strip("-") or "cours"
-    return FileResponse(tmp.name, media_type="application/zip",
-                        filename=f"sauvegarde-{safe}-{datetime.utcnow():%Y%m%d}.zip",
-                        background=BackgroundTask(os.remove, tmp.name))
-
-
-@router.post("/restore", status_code=201)
-async def restore_course(
-    file: UploadFile = File(...),
-    teacher_id: Optional[int] = Form(None),
-    db: Session = Depends(get_db),
-    me: User = Depends(get_current_user),
-):
-    """Crée un NOUVEAU cours à partir d'une sauvegarde .zip (le cours d'origine n'est jamais modifié)."""
-    if me.role not in ("admin", "teacher"):
-        raise HTTPException(403, "Accès réservé aux enseignants et administrateurs")
-    raw = await file.read(MAX_RESTORE_BYTES + 1)
-    if len(raw) > MAX_RESTORE_BYTES:
-        raise HTTPException(400, f"Sauvegarde trop volumineuse (maximum {MAX_RESTORE_BYTES // (1024 * 1024)} Mo)")
-
-    try:
-        z = zipfile.ZipFile(io.BytesIO(raw))
-    except zipfile.BadZipFile:
-        raise HTTPException(400, "Ce fichier n'est pas une sauvegarde valide (.zip attendu)")
-    if sum(i.file_size for i in z.infolist()) > MAX_UNZIPPED_BYTES:
-        raise HTTPException(400, "Sauvegarde trop volumineuse une fois décompressée")
-    if "course.json" not in z.namelist():
-        raise HTTPException(400, "Sauvegarde invalide : course.json introuvable")
-    try:
-        data = json.loads(z.read("course.json").decode("utf-8"))
-        assert data.get("format") == "unilearn-course" and isinstance(data.get("course"), dict)
-        assert len(data.get("lessons", [])) <= 1000 and len(data.get("exams", [])) <= 200
-    except Exception:
-        raise HTTPException(400, "Sauvegarde invalide ou d'un format inconnu")
-    if data.get("version", 0) > FORMAT_VERSION:
-        raise HTTPException(400, "Sauvegarde créée par une version plus récente de UniLearn")
-
-    names = set(z.namelist())
-
-    def read(arc):
-        if arc and arc in names and arc.startswith("files/") and ".." not in arc:
-            return z.read(arc)
-        return None
-
-    owner = me.id
-    if me.role == "admin" and teacher_id:
-        t = db.query(User).filter(User.id == teacher_id, User.role.in_(("teacher", "admin"))).first()
-        if not t:
-            raise HTTPException(400, "Enseignant introuvable")
-        owner = t.id
-    new = _import(data, read, db, owner, title_suffix=" (restauré)")
     return {"id": new.id, "title": new.title}

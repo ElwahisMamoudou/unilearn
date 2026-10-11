@@ -613,6 +613,20 @@ class CourseGroup(Base):
 
     course  = relationship("Course", backref=backref("groups", cascade="all, delete-orphan"))
     members = relationship("CourseGroupMember", back_populates="group", cascade="all, delete-orphan")
+    restrictions = relationship("GroupRestriction", back_populates="group", cascade="all, delete-orphan")
+
+
+class GroupRestriction(Base):
+    """Limite un devoir ou une discussion du forum à certains groupes du cours.
+    Sans aucune ligne, l'élément est visible par tous les étudiants inscrits."""
+    __tablename__ = "group_restrictions"
+    __table_args__ = (UniqueConstraint("group_id", "target_type", "target_id", name="uq_group_restriction"),)
+    id          = Column(Integer, primary_key=True, index=True)
+    group_id    = Column(Integer, ForeignKey("course_groups.id"), nullable=False, index=True)
+    target_type = Column(String(20), nullable=False, index=True)   # "homework" ou "forum"
+    target_id   = Column(Integer, nullable=False, index=True)
+
+    group = relationship("CourseGroup", back_populates="restrictions")
 
 
 class CourseGroupMember(Base):
