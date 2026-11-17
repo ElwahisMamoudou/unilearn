@@ -10,7 +10,7 @@ import axios from 'axios'
 // the Railway backend even if the env var is accidentally missing,
 // preventing requests from being routed through the Vercel domain.
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://web-production-0a022.up.railway.app/api',
+  baseURL: import.meta.env.VITE_API_URL || 'https://unilearn-production-4ee9d4be.up.railway.app/api',
 })
 
 // Injecte le token JWT dans chaque requête
